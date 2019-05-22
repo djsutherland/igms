@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--featurizer", default="through:smoothing")
     parser.add_argument("--kernel", default="linear")
     parser.add_argument("--mmd-estimator", default="unbiased")
+    parser.add_argument("--image-noise", type=float, default=0)
 
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
@@ -57,6 +58,9 @@ def main():
     fn = partial(os.path.join, args.outdir)
 
     device = args.device
+    batch_size = args.batch_size
+    image_noise = args.image_noise
+
     generator = make_generator(
         args.generator, output_size=args.out_size, z_dim=args.z_dim
     ).to(device)
@@ -88,6 +92,8 @@ def main():
         )
 
     latents = torch.empty(args.batch_size, generator.z_dim, 1, 1, device=device)
+    real_noise = torch.empty(batch_size, 3, args.out_size, args.out_size, device=device)
+    fake_noise = torch.empty(batch_size, 3, args.out_size, args.out_size, device=device)
     generator.train()
 
     os.makedirs(args.outdir)
@@ -99,36 +105,51 @@ def main():
     start = datetime.datetime.now()
 
     with open(fn("log.txt"), "w", buffering=1) as log_f:
+
+        def log_line():
+            diff = datetime.datetime.now() - start
+            s = f"{epoch:>3} / {batch_i:>7,}: {l_str:>14}    ({diff})"
+            tqdm.write(s)
+            log_f.write(s + "\n")
+
+        def save_samples(name):
+            generator.eval()
+            pil(generator(log_latents)).save(fn(f"fake_{name}.jpg"))
+            generator.train()
+
         for epoch in tqdm(range(25), unit="epoch", dynamic_ncols=True):
             with tqdm(dataloader, unit="batch", dynamic_ncols=True) as bar:
                 for batch_i, (real_imgs, real_ys) in enumerate(bar):
                     real_imgs = real_imgs.to(device)
-                    real_noised = real_imgs + torch.randn_like(real_imgs) * 0.25
-                    real_reps = featurizer(real_noised)
+                    if image_noise:
+                        real_noise.normal_(std=image_noise)
+                        real_imgs = real_imgs + real_noise
+                    real_reps = featurizer(real_imgs)
 
                     opt.zero_grad()
                     latents.uniform_(-1, 1)
                     fake_imgs = generator(latents)
-                    fake_noised = fake_imgs + torch.randn_like(fake_imgs) * 0.25
-                    fake_reps = featurizer(fake_noised)
+                    if image_noise:
+                        fake_noise.normal_(std=image_noise)
+                        fake_imgs = fake_imgs + fake_noise
+                    fake_reps = featurizer(fake_imgs)
 
                     loss = mmd2(kernel(real_reps, fake_reps), estimator=estimator)
                     loss.backward()
                     opt.step()
 
                     l_str = f"{loss.item():,.3f}"
-                    bar.set_postfix(loss=l_str)
+                    bar.set_postfix(loss="=" + l_str.rjust(11))
 
                     if batch_i % 100 == 0:
-                        diff = datetime.datetime.now() - start
-                        s = f"{epoch:>3} / {batch_i:>7,}: {l_str:>14}    ({diff})"
-                        bar.write(s)
-                        log_f.write(s + "\n")
+                        log_line()
 
                     if batch_i % 500 == 0:
-                        pth = fn(f"fake_{epoch}_{batch_i}.jpg")
-                        pil(generator(log_latents)).save(pth)
-        checkpoint(epoch + 1)
+                        save_samples(f"{epoch}_{batch_i}")
+            checkpoint(epoch + 1)
+
+        log_line()
+        save_samples(f"{epoch}_{batch_i}")
 
 
 if __name__ == "__main__":
