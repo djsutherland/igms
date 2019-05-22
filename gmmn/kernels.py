@@ -50,17 +50,29 @@ class KernelPair:
             self.YY = K[n_X:, n_X:]
         return self._joint
 
+    def XX_trace(self):
+        if self.const_diagonal is False:
+            return self.XX.trace()
+        else:
+            return self.n_X * self.const_diagonal
 
-def _make_pair(K_XY, get_K_XX, get_K_YY, Y_none, n1, XY_only):
+    def YY_trace(self):
+        if self.const_diagonal is False:
+            return self.YY.trace()
+        else:
+            return self.n_Y * self.const_diagonal
+
+
+def _make_pair(K_XY, get_K_XX, get_K_YY, Y_none, n1, XY_only, **kwargs):
     if Y_none:
         if n1 is None:
-            return KernelPair(K_XY, K_XY, K_XY)
+            return KernelPair(K_XY, K_XY, K_XY, **kwargs)
         else:
-            return KernelPair(K_XY, n_X=n1)
+            return KernelPair(K_XY, n_X=n1, **kwargs)
     elif XY_only:
-        return KernelPair(K_XY)
+        return KernelPair(K_XY, **kwargs)
     else:
-        return KernelPair(K_XY, get_K_XX(), get_K_YY())
+        return KernelPair(K_XY, get_K_XX(), get_K_YY(), **kwargs)
 
 
 def linear(X, Y=None, n1=None, XY_only=False):
@@ -92,4 +104,7 @@ def mix_rbf_dot(X, Y=None, sigmas_sq=(1,), wts=None, add_dot=0, n1=None, XY_only
     K_XY = get_K(X, Y, X_sqnorms, Y_sqnorms)
     get_K_XX = partial(get_K, X, X, X_sqnorms, Y_sqnorms)
     get_K_YY = partial(get_K, Y, Y, Y_sqnorms, Y_sqnorms)
-    return _make_pair(K_XY, get_K_XX, get_K_YY, Y is None, n1, XY_only)
+    diag = 1 if wts is None else wts.sum().item()
+    return _make_pair(
+        K_XY, get_K_XX, get_K_YY, Y is None, n1, XY_only, const_diagonal=diag
+    )

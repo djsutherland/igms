@@ -18,16 +18,16 @@ def mmd2(kernel_pair, estimator=Estimator.UNBIASED):
     elif estimator == Estimator.UNBIASED:
         m, n = K.XY.shape
         return (
-            (K.XX.sum() - K.XX.trace()) / (m * (m - 1))
-            + (K.YY.sum() - K.YY.trace()) / (n * (n - 1))
+            (K.XX.sum() - K.XX_trace()) / (m * (m - 1))
+            + (K.YY.sum() - K.YY_trace()) / (n * (n - 1))
             - 2 * K.XY.mean()
         )
     elif estimator == Estimator.U_STAT:
         m, n = K.XY.shape
         assert m == n
         return (
-            (K.XX.sum() - K.XX.trace())
-            + (K.YY.sum() - K.YY.trace())
+            (K.XX.sum() - K.XX_trace())
+            + (K.YY.sum() - K.YY_trace())
             - 2 * (K.XY.sum() - K.XY.trace())
         ) / (n * (n - 1))
     else:
