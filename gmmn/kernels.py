@@ -9,7 +9,7 @@ def mix_rbf_dot(X, Y=None, sigmas_sq=(1,), wts=None, add_dot=0, self_Ks=True):
         wts = torch.as_tensor(wts, dtype=X.dtype, device=X.device)
     sigmas_sq = torch.as_tensor(sigmas_sq, dtype=X.dtype, device=X.device)
 
-    XX = torch.mm(X, X.transpose(0, 1))
+    XX = X @ X.t()
     X_sqnorms = torch.diagonal(XX)
 
     if Y is None:
@@ -17,9 +17,9 @@ def mix_rbf_dot(X, Y=None, sigmas_sq=(1,), wts=None, add_dot=0, self_Ks=True):
         Y_sqnorms = X_sqnorms
         XY = XX
     else:
-        YY = torch.mm(Y, Y.transpose(0, 1))
+        YY = Y @ Y.t()
         Y_sqnorms = torch.diagonal(YY)
-        XY = torch.mm(X, Y.transpose(0, 1))
+        XY = X @ Y.t()
 
     sqdists = [(X_sqnorms[:, None] + Y_sqnorms[None, :] - 2 * XY, XY)]
     if self_Ks and Y is not None:
@@ -46,17 +46,17 @@ def mix_rbf_dot(X, Y=None, sigmas_sq=(1,), wts=None, add_dot=0, self_Ks=True):
         return Ks
 
 
-def linear_kernel(X, Y=None, self_Ks=True):
+def linear(X, Y=None, self_Ks=True):
     X = torch.as_tensor(X)
     if Y is not None:
         Y = torch.as_tensor(Y, dtype=X.dtype, device=X.device)
 
-    XY = torch.mm(X, (X if Y is None else Y).t())
+    XY = X @ (X if Y is None else Y).t()
 
     if self_Ks:
         if Y is not None:
-            XX = torch.mm(X, X.t())
-            YY = torch.mm(Y, Y.t())
+            XX = X @ X.t()
+            YY = Y @ Y.t()
             return [XY, XX, YY]
         else:
             return [XY, XY, XY]
