@@ -18,10 +18,6 @@ from gmmn.utils import get_optimizer, pil, set_other_seeds
 
 
 def main():
-    assert torch.cuda.is_available()
-    assert torch.backends.cudnn.enabled
-    torch.backends.cudnn.benchmark = True
-
     parser = argparse.ArgumentParser()
     parser.add_argument("outdir")
     parser.add_argument(
@@ -43,6 +39,10 @@ def main():
 
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
+
+    assert torch.cuda.is_available()
+    assert torch.backends.cudnn.enabled
+    torch.backends.cudnn.benchmark = True
 
     if os.path.exists(args.outdir):
         if args.force:
@@ -91,8 +91,11 @@ def main():
     generator.train()
 
     os.makedirs(args.outdir)
-    pil(next(iter(dataloader))[0]).save(fn("real.jpg"))
+    log_latents = torch.empty(64, generator.z_dim, 1, 1, device=device)
+    log_latents.uniform_(-1, 1)
+    pil(next(iter(dataloader))[0][: log_latents.shape[0]]).save(fn("real.jpg"))
     checkpoint(0)
+
     start = datetime.datetime.now()
 
     with open(fn("log.txt"), "w", buffering=1) as log_f:
@@ -123,7 +126,8 @@ def main():
                         log_f.write(s + "\n")
 
                     if batch_i % 500 == 0:
-                        pil(fake_imgs).save(fn(f"fake_{epoch}_{batch_i}.jpg"))
+                        pth = fn(f"fake_{epoch}_{batch_i}.jpg")
+                        pil(generator(log_latents)).save(pth)
         checkpoint(epoch + 1)
 
 
