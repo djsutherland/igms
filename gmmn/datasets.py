@@ -59,17 +59,34 @@ class CelebA(torch.utils.data.Dataset):
     def __len__(self):
         return self.filenames.shape[0]
 
+    @staticmethod
+    def default_transform(out_size=64, max_crop=160, min_crop=140):
+        return transforms.Compose(
+            [
+                transforms.CenterCrop(178),
+                #     transforms.RandomCrop(160),
+                transforms.RandomResizedCrop(
+                    out_size, scale=(min_crop / 178, max_crop / 178), ratio=(1, 1)
+                ),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,) * 3, (0.5,) * 3),  # from [0, 1] to [-1, 1]
+            ]
+        )
 
-def celeba_transform(out_size=64, max_crop=160, min_crop=140):
-    return transforms.Compose(
-        [
-            transforms.CenterCrop(178),
-            #     transforms.RandomCrop(160),
-            transforms.RandomResizedCrop(
-                out_size, scale=(min_crop / 178, max_crop / 178), ratio=(1, 1)
-            ),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5,) * 3, (0.5,) * 3),  # go from [0, 1] to [-1, 1]
-        ]
-    )
+
+def get_dataset(spec, out_size, **kwargs):
+    parts = spec.split(":")
+    kind = parts.pop(0).lower()
+    if kind == "celeba":
+        kwargs["path"] = (
+            os.path.expanduser(parts.pop(0) if parts else "") or "data/celebA"
+        )
+        if parts:
+            kwargs["attr_query"] = parts.pop(0) or None
+        if parts:
+            kwargs["split"] = parts.pop(0)
+        assert not parts
+        return CelebA(**kwargs, transform=CelebA.default_transform(out_size=out_size))
+    else:
+        raise ValueError(f"Unknown dataset {kind}")

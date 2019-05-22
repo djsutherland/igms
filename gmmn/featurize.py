@@ -1,4 +1,5 @@
 from copy import copy
+import os
 import types
 
 import torch
@@ -144,3 +145,19 @@ def load_smoothing_imagenet_model(checkpoint_path, **kwargs):
     model = resnet50(pretrained=False).to(**kwargs)
     model.load_state_dict(sd)
     return model
+
+
+def load_featurizer(spec, input_scale=(-1, 1), **to_kwargs):
+    parts = spec.split(":")
+
+    kind = parts.pop(0) if parts else "through"
+
+    model_type = parts.pop(0) if parts else "smoothing"
+    if model_type == "smoothing":
+        def_pth = "~/smoothing/models/imagenet/resnet50/noise_0.25/checkpoint.pth.tar"
+        pth = parts.pop(0) if parts else def_pth
+        model = load_smoothing_imagenet_model(os.path.expanduser(pth), **to_kwargs)
+    else:
+        raise ValueError(f"unknown model type {model_type}")
+
+    return make_featurizer(model, kind=kind, input_scale=input_scale)

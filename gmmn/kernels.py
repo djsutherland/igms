@@ -108,3 +108,22 @@ def mix_rbf_dot(X, Y=None, sigmas_sq=(1,), wts=None, add_dot=0, n1=None, XY_only
     return _make_pair(
         K_XY, get_K_XX, get_K_YY, Y is None, n1, XY_only, const_diagonal=diag
     )
+
+
+def pick_kernel(spec):
+    parts = spec.split(":")
+    kind = parts.pop(0)
+    if kind == "linear":
+        assert not parts
+        return linear
+    elif kind == "mix_rbf_dot":
+        kwargs = {}
+        if parts:
+            kwargs["add_dot"] = float(parts.pop(0))
+        if parts:
+            kwargs["sigmas_sq"] = tuple(float(x) for x in parts.pop(0).split(","))
+        if parts:
+            kwargs["wts"] = tuple(float(x) for x in parts.pop(0).split(","))
+            assert len(kwargs["sigmas_sq"]) == len(kwargs["wts"])
+        assert not parts
+        return partial(mix_rbf_dot, **kwargs)
