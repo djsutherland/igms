@@ -81,6 +81,24 @@ def linear(X, Y=None, n1=None, XY_only=False):
     return _make_pair(XY, lambda: X @ X.t(), lambda: Y @ Y.t(), Y is None, n1, XY_only)
 
 
+def polynomial(X, Y=None, n1=None, XY_only=False, degree=3, gamma=None, coef0=1):
+    "k(X, Y) = (gamma <X, Y> + coef0)^degree; gamma defaults to 1/dim"
+    X, Y = as_tensors(X, Y)
+    if gamma is None:
+        gamma = 1 / X.shape[1]
+
+    XY = X @ (X if Y is None else Y).t()
+    K_XY = (gamma * XY + coef0) ** degree
+    return _make_pair(
+        K_XY,
+        lambda: (gamma * (X @ X.t()) + coef0) ** degree,
+        lambda: (gamma * (Y @ Y.t()) + coef0) ** degree,
+        Y is None,
+        n1,
+        XY_only,
+    )
+
+
 def mix_rbf_dot(X, Y=None, sigmas_sq=(1,), wts=None, add_dot=0, n1=None, XY_only=False):
     X, Y, wts, sigmas_sq = as_tensors(X, Y, wts, sigmas_sq)
 
