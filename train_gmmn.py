@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-import argparse
 import datetime
 from functools import partial
 from glob import glob
+import json
 import os
 import re
+import shlex
 import shutil
 import sys
 
@@ -17,11 +18,11 @@ from igms.featurize import load_featurizer
 from igms.generator import make_generator
 from igms.mmd import mmd2, Estimator
 from igms.kernels import pick_kernel
-from igms.utils import get_optimizer, pil, set_other_seeds
+from igms.utils import ArgumentParser, get_optimizer, pil, set_other_seeds
 
 
 def parse_args(argv=None, check_dir=True):
-    parser = argparse.ArgumentParser()
+    parser = ArgumentParser()
     parser.add_argument("outdir")
     parser.add_argument(
         "--force", action="store_true", help="Delete OUTDIR if it exists."
@@ -93,6 +94,22 @@ def parse_args(argv=None, check_dir=True):
                         "use --resume, or --force to delete"
                     )
         os.makedirs(args.outdir)
+
+        v = parser._read_args_from_files(sys.argv[1:] if argv is None else argv)
+        with open(os.path.join(args.outdir, "argv.txt"), "x") as f:
+            print(
+                "# This file has the effective arguments passed, one per line.\n"
+                "# Note there might be duplicates (later taking precedence).\n"
+                "# You can run them again with "
+                f"`{os.path.basename(__file__)} @path/to/argv.txt`.\n"
+                "# See args.json for how they were parsed by argparse.\n",
+                file=f,
+            )
+            for arg in v:
+                print(shlex.quote(arg), file=f)
+        with open(os.path.join(args.outdir, "args.json"), "w") as f:
+            json.dump(vars(args), f, indent=2)
+
     return args, {}
 
 

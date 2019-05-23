@@ -1,7 +1,9 @@
+import argparse
 from functools import partial
+import random
+import shlex
 
 import numpy as np
-import random
 import torch
 
 
@@ -41,3 +43,19 @@ def get_optimizer(spec, **kwargs):
 def set_other_seeds(worker_id):
     random.seed(torch.initial_seed())
     np.random.seed(torch.initial_seed() % (2 ** 32))
+
+
+class ArgumentParser(argparse.ArgumentParser):
+    """
+    Some slightly nicer defaults for argparse to allow passing in arguments
+    from files: make a file (e.g. `args.txt`) with lines like you were typing
+    them at the command line, then use @args.txt in the command line to
+    substitute them in as if you had typed them there.
+    """
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("fromfile_prefix_chars", "@")
+        super().__init__(*args, **kwargs)
+
+    def convert_arg_line_to_args(self, arg_line):
+        return shlex.split(arg_line, comments=True)
