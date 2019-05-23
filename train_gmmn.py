@@ -83,16 +83,14 @@ def parse_args(argv=None, check_dir=True):
         return checkpoint_args, checkpoint
     elif check_dir:
         if os.path.exists(args.outdir):
-            if args.force:
+            ls = set(os.listdir(args.outdir))
+            if args.force or ls.issubset({"args.json", "argv.txt"}):
                 shutil.rmtree(args.outdir)
             else:
-                try:
-                    os.rmdir(args.outdir)
-                except OSError:
-                    parser.error(
-                        f"{args.outdir} already exists; "
-                        "use --resume, or --force to delete"
-                    )
+                parser.error(
+                    f"{args.outdir} already exists; "
+                    "use --resume, or --force to delete"
+                )
         os.makedirs(args.outdir)
 
         v = parser._read_args_from_files(sys.argv[1:] if argv is None else argv)
