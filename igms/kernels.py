@@ -16,11 +16,11 @@ def register(original_func=None, *, name=None):
     def decorator(func):
         sig = inspect.signature(func)
         arg_info = []
-        for name, param in sig.parameters.items():
-            if name in _expected_params:
+        for kw, param in sig.parameters.items():
+            if kw in _expected_params:
                 continue
             fn = param.annotation
-            arg_info.append((name, str if fn is inspect.Parameter.empty else fn))
+            arg_info.append((kw, str if fn is inspect.Parameter.empty else fn))
 
         _registry[name or func.__name__] = (func, arg_info)
         return func

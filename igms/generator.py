@@ -42,6 +42,7 @@ class Generator(nn.Module):
     def __init__(
         self, z_dim: int = 128, output_channels: int = 3, output_size: int = 64
     ):
+        super().__init__()
         self.z_dim = z_dim
         self.output_channels = output_channels
         self.output_size = output_size
@@ -70,8 +71,6 @@ class DCGANGenerator(Generator):
         )
         self.n_filters = n_filters
         assert self.output_size % 16 == 0
-
-        super().__init__()
 
         self.main = nn.Sequential(
             # input is Z, going into a convolution, of shape z_dim * 1 * 1
