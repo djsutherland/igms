@@ -9,6 +9,7 @@ class DCGANGenerator(nn.Module):
         self.output_channels = output_channels
         self.output_size = output_size
         assert output_size % 16 == 0
+        self.output_shape = (self.output_channels, self.output_size, self.output_size)
 
         super().__init__()
 
@@ -48,6 +49,10 @@ class DCGANGenerator(nn.Module):
         self.main.apply(weights_init)
 
     def forward(self, input):
+        if len(input.shape) == 2:
+            input = input[:, :, None, None]
+        else:
+            assert len(input.shape) == 4
         return self.main(input)
 
 

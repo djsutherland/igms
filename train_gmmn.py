@@ -2,73 +2,141 @@
 import argparse
 import datetime
 from functools import partial
+from glob import glob
 import os
+import re
 import shutil
+import sys
 
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from gmmn.datasets import get_dataset
-from gmmn.featurize import load_featurizer
-from gmmn.generator import make_generator
-from gmmn.mmd import mmd2, Estimator
-from gmmn.kernels import pick_kernel
-from gmmn.utils import get_optimizer, pil, set_other_seeds
+from igms.datasets import get_dataset
+from igms.featurize import load_featurizer
+from igms.generator import make_generator
+from igms.mmd import mmd2, Estimator
+from igms.kernels import pick_kernel
+from igms.utils import get_optimizer, pil, set_other_seeds
 
 
-def main():
+def parse_args(argv=None, check_dir=True):
     parser = argparse.ArgumentParser()
     parser.add_argument("outdir")
     parser.add_argument(
         "--force", action="store_true", help="Delete OUTDIR if it exists."
     )
 
-    parser.add_argument("--out-size", type=int, default=64)
-    parser.add_argument("--z-dim", type=int, default=128)
-    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume the last checkpoint from OUTDIR. "
+            "Overrides all other arguments except DEVICE and DATA_WORKERS."
+        ),
+    )
 
-    parser.add_argument("--dataset", default="celebA")
-    parser.add_argument("--data-workers", type=int, default=2)
-    parser.add_argument("--generator", default="dcgan")
-    parser.add_argument("--optimizer", default="adam:1e-4")
-    parser.add_argument("--epochs", type=int, default=25)
-    parser.add_argument("--featurizer", default="through:smoothing")
-    parser.add_argument("--kernel", default="linear")
-    parser.add_argument("--mmd-estimator", default="unbiased")
-    parser.add_argument("--image-noise", type=float, default=0)
+    ds = parser.add_argument_group("dataset options")
+    ds.add_argument("--dataset", default="celebA")
+    ds.add_argument("--out-size", type=int, default=64)
 
-    parser.add_argument("--device", default="cuda:0")
-    args = parser.parse_args()
+    gen = parser.add_argument_group("generator options")
+    gen.add_argument("--z-dim", type=int, default=128)
+    gen.add_argument("--batch-size", type=int, default=128)
+    gen.add_argument("--generator", default="dcgan")
+
+    opt = parser.add_argument_group("optimizer options")
+    opt.add_argument("--optimizer", default="adam:1e-4")
+    opt.add_argument("--epochs", type=int, default=25)
+
+    loss = parser.add_argument_group("loss options")
+    loss.add_argument("--featurizer", default="through:smoothing")
+    loss.add_argument("--image-noise", type=float, default=0)
+    loss.add_argument("--kernel", default="linear")
+    loss.add_argument(
+        "--mmd-estimator",
+        default="unbiased",
+        type=lambda s: s.upper().replace("-", "_"),
+    )
+
+    comp = parser.add_argument_group("computation options")
+    comp.add_argument("--data-workers", type=int, default=2)
+    comp.add_argument("--device", default="cuda:0")
+    args = parser.parse_args(argv)
+
+    if args.resume:
+        checkpoints = glob(f"{args.outdir}/checkpoint_*.pt")
+        if not checkpoints:
+            parser.error(f"Couldn't find any checkpoints to resume in {args.outdir}")
+
+        pat = re.compile(r"/checkpoint_(\d+)_(\d+)\.pt$")
+
+        def checkpoint_idx(s):
+            return tuple(int(x) for x in pat.search(s).groups())
+
+        checkpoint = torch.load(max(checkpoints, key=checkpoint_idx))
+        checkpoint_args = checkpoint["args"]
+        checkpoint_args.device = args.device
+        checkpoint_args.data_workers = args.data_workers
+        checkpoint_args.resume = True
+        return checkpoint_args, checkpoint
+    elif check_dir:
+        if os.path.exists(args.outdir):
+            if args.force:
+                shutil.rmtree(args.outdir)
+            else:
+                try:
+                    os.rmdir(args.outdir)
+                except OSError:
+                    parser.error(
+                        f"{args.outdir} already exists; "
+                        "use --resume, or --force to delete"
+                    )
+        os.makedirs(args.outdir)
+    return args, {}
+
+
+def main():
+    args, checkpoint = parse_args()
 
     assert torch.cuda.is_available()
     assert torch.backends.cudnn.enabled
     torch.backends.cudnn.benchmark = True
 
-    if os.path.exists(args.outdir):
-        if args.force:
-            shutil.rmtree(args.outdir)
-        else:
-            try:
-                os.rmdir(args.outdir)
-            except OSError:
-                parser.error(
-                    f"{args.outdir} already exists; choose a different one or --force"
-                )
-    fn = partial(os.path.join, args.outdir)
-
-    device = args.device
-    batch_size = args.batch_size
-    image_noise = args.image_noise
-
     generator = make_generator(
         args.generator, output_size=args.out_size, z_dim=args.z_dim
-    ).to(device)
+    ).to(args.device)
     opt = get_optimizer(args.optimizer)(generator.parameters())
 
-    featurizer = load_featurizer(args.featurizer).to(device)
-    kernel = pick_kernel(args.kernel)
-    estimator = Estimator[args.mmd_estimator.upper()]
+    if checkpoint:
+        generator.load_state_dict(checkpoint["generator_state_dict"])
+        opt.load_state_dict(checkpoint["optimizer_state_dict"])
+        log_latents = checkpoint["log_latents"].to(args.device)
+        resume = (checkpoint["epoch"], checkpoint["batches"])
+    else:
+        log_latents = torch.empty(64, generator.z_dim, device=args.device)
+        log_latents.uniform_(-1, 1)
+        resume = None
+
+    featurizer = load_featurizer(args.featurizer).to(args.device)
+    top_kernel = pick_kernel(args.kernel)
+    estimator = Estimator[args.mmd_estimator]
+
+    if args.image_noise:
+        real_noise = torch.empty(
+            args.batch_size, *generator.output_shape, device=args.device
+        )
+        fake_noise = torch.empty(
+            args.batch_size, *generator.output_shape, device=args.device
+        )
+
+    def loss_fn(real_imgs, fake_imgs):
+        if args.image_noise:
+            real_imgs = real_imgs + real_noise.normal_(std=args.image_noise)
+            fake_imgs = fake_imgs + fake_noise.normal_(std=args.image_noise)
+        real_reps = featurizer(real_imgs)
+        fake_reps = featurizer(fake_imgs)
+        return mmd2(top_kernel(real_reps, fake_reps), estimator=estimator)
 
     dataset = get_dataset(args.dataset, out_size=args.out_size)
     dataloader = DataLoader(
@@ -81,60 +149,79 @@ def main():
         worker_init_fn=set_other_seeds,
     )
 
-    def checkpoint(name):
-        torch.save(
-            {
-                "args": args,
-                "generator_state_dict": generator.state_dict(),
-                "optimizer_state_dict": opt.state_dict(),
-            },
-            fn(f"checkpoint_{name}.pt"),
-        )
+    train_loop(args, dataloader, generator, loss_fn, opt, log_latents, resume)
 
-    latents = torch.empty(args.batch_size, generator.z_dim, 1, 1, device=device)
-    real_noise = torch.empty(batch_size, 3, args.out_size, args.out_size, device=device)
-    fake_noise = torch.empty(batch_size, 3, args.out_size, args.out_size, device=device)
+
+def train_loop(args, dataloader, generator, loss_fn, opt, log_latents, resume=None):
+    fn = partial(os.path.join, args.outdir)
+    device = args.device
+
+    latents = torch.empty(args.batch_size, generator.z_dim, device=device)
     generator.train()
 
-    os.makedirs(args.outdir)
-    log_latents = torch.empty(64, generator.z_dim, 1, 1, device=device)
-    log_latents.uniform_(-1, 1)
-    pil(next(iter(dataloader))[0][: log_latents.shape[0]]).save(fn("real.jpg"))
-    checkpoint(0)
+    with open(fn("log.txt"), "a", buffering=1) as log_f:
 
-    start = datetime.datetime.now()
-
-    with open(fn("log.txt"), "w", buffering=1) as log_f:
-
-        def log_line():
-            diff = datetime.datetime.now() - start
-            s = f"{epoch:>3} / {batch_i:>7,}: {l_str:>14}    ({diff})"
+        def write_line(line):
+            s = f"[{datetime.datetime.now():%Y-%m-%d %H:%m:%S}]  {line}"
             tqdm.write(s)
             log_f.write(s + "\n")
 
+        def checkpoint(epoch, batches=0):
+            d = {
+                "args": args,
+                "generator_state_dict": generator.state_dict(),
+                "optimizer_state_dict": opt.state_dict(),
+                "log_latents": log_latents,
+                "epoch": epoch,
+                "batches": batches,
+            }
+
+            name = orig_name = f"checkpoint_{epoch}_{batches}.pt"
+            while os.path.exists(fn(name)):
+                name += "~"
+            torch.save(d, fn(name))
+
+            if name != orig_name:
+                write_line(
+                    f"ERROR: checkpoint {orig_name} already exists! "
+                    f"Saved to {name} instead, now aborting."
+                )
+                sys.exit(3)
+            else:
+                write_line(f"saved checkpoint: {name}")
+
         def save_samples(name):
             generator.eval()
-            pil(generator(log_latents)).save(fn(f"fake_{name}.jpg"))
+            file = f"fake_{name}.jpg"
+            pil(generator(log_latents)).save(fn(file))
             generator.train()
+            write_line(f"saved samples: {file}")
 
-        for epoch in tqdm(range(25), unit="epoch", dynamic_ncols=True):
+        if resume:
+            resume_epoch, resume_batch = resume
+            epochs = range(resume_epoch, args.epochs)
+            skip_batches = resume_batch + 1
+            write_line(f"Resuming from {resume_epoch} / {resume_batch}")
+        else:
+            pil(next(iter(dataloader))[0][: log_latents.shape[0]]).save(fn("real.jpg"))
+            checkpoint(0)
+            epochs = range(args.epochs)
+            skip_batches = 0
+
+        for epoch in tqdm(epochs, unit="epoch", dynamic_ncols=True):
             with tqdm(dataloader, unit="batch", dynamic_ncols=True) as bar:
                 for batch_i, (real_imgs, real_ys) in enumerate(bar):
+                    if skip_batches:
+                        skip_batches -= 1
+                        continue
+
                     real_imgs = real_imgs.to(device)
-                    if image_noise:
-                        real_noise.normal_(std=image_noise)
-                        real_imgs = real_imgs + real_noise
-                    real_reps = featurizer(real_imgs)
 
                     opt.zero_grad()
                     latents.uniform_(-1, 1)
                     fake_imgs = generator(latents)
-                    if image_noise:
-                        fake_noise.normal_(std=image_noise)
-                        fake_imgs = fake_imgs + fake_noise
-                    fake_reps = featurizer(fake_imgs)
 
-                    loss = mmd2(kernel(real_reps, fake_reps), estimator=estimator)
+                    loss = loss_fn(real_imgs, fake_imgs)
                     loss.backward()
                     opt.step()
 
@@ -142,13 +229,13 @@ def main():
                     bar.set_postfix(loss="=" + l_str.rjust(11))
 
                     if batch_i % 100 == 0:
-                        log_line()
+                        write_line(f"{epoch:>3} / {batch_i:>7,}: {l_str:>14}")
 
                     if batch_i % 500 == 0:
                         save_samples(f"{epoch}_{batch_i}")
-            checkpoint(epoch + 1)
+            checkpoint(epoch, batch_i)
 
-        log_line()
+        write_line(f"{epoch:>3} / {batch_i:>7,}: {l_str:>14}")
         save_samples(f"{epoch}_{batch_i}")
 
 
