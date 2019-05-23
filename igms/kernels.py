@@ -12,17 +12,20 @@ _registry = {}
 _expected_params = {"X", "Y", "n1", "XY_only"}
 
 
-def register(func):
-    sig = inspect.signature(func)
-    arg_info = []
-    for name, param in sig.parameters.items():
-        if name in _expected_params:
-            continue
-        fn = param.annotation
-        arg_info.append((name, str if fn is inspect.Parameter.empty else fn))
+def register(original_func=None, *, name=None):
+    def decorator(func):
+        sig = inspect.signature(func)
+        arg_info = []
+        for name, param in sig.parameters.items():
+            if name in _expected_params:
+                continue
+            fn = param.annotation
+            arg_info.append((name, str if fn is inspect.Parameter.empty else fn))
 
-    _registry[func.__name__] = (func, arg_info)
-    return func
+        _registry[name or func.__name__] = (func, arg_info)
+        return func
+
+    return decorator(original_func) if original_func else decorator
 
 
 def pick_kernel(spec):
@@ -95,6 +98,8 @@ class KernelPair:
 
 ################################################################################
 
+# TODO: this could probably be better thought out. Maybe classes + inheritance?
+
 
 def _make_pair(K_XY, get_K_XX, get_K_YY, Y_none, n1, XY_only, **kwargs):
     "A helper to handle computing various things reasonably efficiently."
@@ -144,6 +149,23 @@ def polynomial(
 
 
 @register
+def linear_and_square(X, Y=None, n1=None, XY_only=False, w: float = 1):
+    "k(X, Y) = <X, Y> + w <X^2, Y^2>, with the squaring elementwise."
+    X, Y = as_tensors(X, Y)
+
+    Xsq = X * X
+    Ysq = Xsq if Y is None else (Y * Y)
+
+    def get_K(m1, m2, m1sq, m2sq):
+        return m1 @ m2.t() + w * (m1sq @ m2sq.t())
+
+    K_XY = get_K(X, Y, Xsq, Ysq)
+    get_K_XX = partial(get_K, X, X, Xsq, Xsq)
+    get_K_YY = partial(get_K, Y, Y, Ysq, Ysq)
+    return _make_pair(K_XY, get_K_XX, get_K_YY, Y is None, n1, XY_only)
+
+
+@register
 def mix_rbf_dot(
     X,
     Y=None,
@@ -167,15 +189,36 @@ def mix_rbf_dot(
         D2 = sqnorms1[:, None] + sqnorms2[None, :] - 2 * dot
         K_parts = torch.exp(D2[None, :, :] / (-2 * sigmas_sq[:, None, None]))
         if wts is None:
-            K = K_parts.mean()
+            K = K_parts.mean(0)
         else:
             K = torch.einsum("sij,s->ij", K_parts, wts)
         return (K + add_dot * dot) if add_dot else K
 
-    K_XY = get_K(X, Y, X_sqnorms, Y_sqnorms)
+    K_XY = get_K(X, X if Y is None else Y, X_sqnorms, Y_sqnorms)
     get_K_XX = partial(get_K, X, X, X_sqnorms, Y_sqnorms)
     get_K_YY = partial(get_K, Y, Y, Y_sqnorms, Y_sqnorms)
     diag = 1 if wts is None else wts.sum().item()
     return _make_pair(
         K_XY, get_K_XX, get_K_YY, Y is None, n1, XY_only, const_diagonal=diag
+    )
+
+
+@register
+def mix_rbf(
+    X,
+    Y=None,
+    n1=None,
+    XY_only=False,
+    sigmas_sq: floats = (1,),
+    wts: floats_or_none = None,
+):
+    return mix_rbf_dot(
+        X=X, Y=Y, n1=n1, XY_only=XY_only, sigmas_sq=sigmas_sq, wts=wts, add_dot=0
+    )
+
+
+@register
+def rbf(X, Y=None, n1=None, XY_only=False, sigma_sq: float = 1):
+    return mix_rbf_dot(
+        X=X, Y=Y, n1=n1, XY_only=XY_only, sigmas_sq=(sigma_sq,), add_dot=0
     )
