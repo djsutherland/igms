@@ -1,14 +1,44 @@
 from functools import partial
+import inspect
 
 import torch
 
-from .utils import as_tensors
+from .utils import as_tensors, floats, float_or_none, floats_or_none
 
-# Some infrastructure, probably over-engineered, that lets us compute kernels
-# in various ways.
+
+# Infrastructure to make a pick_kernel() function that parses string specs.
+
+_registry = {}
+_expected_params = {"X", "Y", "n1", "XY_only"}
+
+
+def register(func):
+    sig = inspect.signature(func)
+    arg_info = []
+    for name, param in sig.parameters.items():
+        if name in _expected_params:
+            continue
+        fn = param.annotation
+        arg_info.append((name, str if fn is inspect.Parameter.empty else fn))
+
+    _registry[func.__name__] = (func, arg_info)
+    return func
+
+
+def pick_kernel(spec):
+    parts = spec.split(":")
+    fn, arg_info = _registry[parts[0]]
+    assert len(parts) - 1 <= len(arg_info)
+    kwargs = {name: parser(s) for s, (name, parser) in zip(parts[1:], arg_info)}
+    return partial(fn, **kwargs)
 
 
 class KernelPair:
+    """
+    An over-engineered class to support storing k(X, Y) either as three
+    matrices or as one big one.
+    """
+
     def __init__(self, K, XX=None, YY=None, n_X=None, const_diagonal=False):
         K, XX, YY = as_tensors(K, XX, YY)
         self.const_diagonal = const_diagonal
@@ -63,7 +93,11 @@ class KernelPair:
             return self.n_Y * self.const_diagonal
 
 
+################################################################################
+
+
 def _make_pair(K_XY, get_K_XX, get_K_YY, Y_none, n1, XY_only, **kwargs):
+    "A helper to handle computing various things reasonably efficiently."
     if Y_none:
         if n1 is None:
             return KernelPair(K_XY, K_XY, K_XY, **kwargs)
@@ -75,13 +109,23 @@ def _make_pair(K_XY, get_K_XX, get_K_YY, Y_none, n1, XY_only, **kwargs):
         return KernelPair(K_XY, get_K_XX(), get_K_YY(), **kwargs)
 
 
+@register
 def linear(X, Y=None, n1=None, XY_only=False):
     X, Y = as_tensors(X, Y)
     XY = X @ (X if Y is None else Y).t()
     return _make_pair(XY, lambda: X @ X.t(), lambda: Y @ Y.t(), Y is None, n1, XY_only)
 
 
-def polynomial(X, Y=None, n1=None, XY_only=False, degree=3, gamma=None, coef0=1):
+@register
+def polynomial(
+    X,
+    Y=None,
+    n1=None,
+    XY_only=False,
+    degree: float = 3,
+    gamma: float_or_none = None,
+    coef0: float = 1,
+):
     "k(X, Y) = (gamma <X, Y> + coef0)^degree; gamma defaults to 1/dim"
     X, Y = as_tensors(X, Y)
     if gamma is None:
@@ -99,7 +143,16 @@ def polynomial(X, Y=None, n1=None, XY_only=False, degree=3, gamma=None, coef0=1)
     )
 
 
-def mix_rbf_dot(X, Y=None, sigmas_sq=(1,), wts=None, add_dot=0, n1=None, XY_only=False):
+@register
+def mix_rbf_dot(
+    X,
+    Y=None,
+    n1=None,
+    XY_only=False,
+    sigmas_sq: floats = (1,),
+    wts: floats_or_none = None,
+    add_dot: float = 0,
+):
     X, Y, wts, sigmas_sq = as_tensors(X, Y, wts, sigmas_sq)
 
     X_sqnorms = torch.einsum("ij,ij->i", X, X)
@@ -126,22 +179,3 @@ def mix_rbf_dot(X, Y=None, sigmas_sq=(1,), wts=None, add_dot=0, n1=None, XY_only
     return _make_pair(
         K_XY, get_K_XX, get_K_YY, Y is None, n1, XY_only, const_diagonal=diag
     )
-
-
-def pick_kernel(spec):
-    parts = spec.split(":")
-    kind = parts.pop(0)
-    if kind == "linear":
-        assert not parts
-        return linear
-    elif kind == "mix_rbf_dot":
-        kwargs = {}
-        if parts:
-            kwargs["add_dot"] = float(parts.pop(0))
-        if parts:
-            kwargs["sigmas_sq"] = tuple(float(x) for x in parts.pop(0).split(","))
-        if parts:
-            kwargs["wts"] = tuple(float(x) for x in parts.pop(0).split(","))
-            assert len(kwargs["sigmas_sq"]) == len(kwargs["wts"])
-        assert not parts
-        return partial(mix_rbf_dot, **kwargs)

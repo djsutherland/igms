@@ -8,6 +8,7 @@ import torch
 
 
 def pil(x, **kwargs):
+    "Converts a tensor of images to a PIL.Image."
     from PIL import Image
     from torchvision.utils import make_grid
 
@@ -19,6 +20,7 @@ def pil(x, **kwargs):
 
 
 def as_tensors(X, *rest):
+    "Calls as_tensor on a bunch of args, all of the first's device and dtype."
     X = torch.as_tensor(X)
     return [X] + [
         None if r is None else torch.as_tensor(r, device=X.device, dtype=X.dtype)
@@ -27,6 +29,7 @@ def as_tensors(X, *rest):
 
 
 def get_optimizer(spec, **kwargs):
+    "Get a torch.optim optimizer from a simple spec."
     parts = spec.split(":")
     kind = parts.pop(0)
     if kind == "adam":
@@ -41,8 +44,29 @@ def get_optimizer(spec, **kwargs):
 
 
 def set_other_seeds(worker_id):
+    "Set seeds for numpy and stdlib; for dataloader workers."
     random.seed(torch.initial_seed())
     np.random.seed(torch.initial_seed() % (2 ** 32))
+
+
+################################################################################
+# Some functions useful in argument parsing, etc.
+
+
+def floats(s):
+    return tuple(float(x) for x in s.split(","))
+
+
+def float_or_none(s):
+    return float(s) if s else None
+
+
+def floats_or_none(s):
+    return floats(s) if s else None
+
+
+################################################################################
+# argparse nicety
 
 
 class ArgumentParser(argparse.ArgumentParser):
