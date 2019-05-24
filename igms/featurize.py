@@ -172,34 +172,65 @@ def make_featurizer(model, kind="through", input_scale=(-1, 1)):
     return nn.Sequential(norm_layer, featurizer)
 
 
-def load_smoothing_imagenet_model(checkpoint_path, **kwargs):
-    def rewrite(k):  # load parameters directly into the model
+def load_smoothing_imagenet_model(noise_level):
+    import tarfile
+
+    # load their checkpoint
+    folder = os.path.join(torch.hub._get_torch_home(), "checkpoints")
+    os.makedirs(folder, exist_ok=True)
+
+    tar_fn = "locuslab-smoothing.tar"
+    if not os.path.exists(os.path.join(folder, tar_fn)):
+        from torchvision.datasets import utils
+
+        utils.download_file_from_google_drive(
+            "1h_TpbXm5haY5f-l4--IKylmdz6tvPoR4", folder, filename=tar_fn
+        )
+
+    with tarfile.open(os.path.join(folder, tar_fn), "r") as tar:
+        fn = f"models/imagenet/resnet50/noise_{noise_level:.2f}/checkpoint.pth.tar"
+        checkpoint = torch.load(tar.extractfile(fn))
+
+    # they checkpointed the model inside Sequential(DataParallel(model))
+    def rewrite(k):
         assert k.startswith("1.module.")
         return k[9:]
 
-    checkpoint = torch.load(checkpoint_path)
     assert checkpoint["arch"] == "resnet50"
     sd = {rewrite(k): v for k, v in checkpoint["state_dict"].items()}
 
-    model = models.resnet50(pretrained=False).to(**kwargs)
+    model = models.resnet50(pretrained=False)
     model.load_state_dict(sd)
     return model
 
 
-def load_featurizer(spec, input_scale=(-1, 1), **to_kwargs):
-    parts = spec.split(":")
+def load_featurizer(spec, input_scale=(-1, 1)):
+    feats = []
+    for subspec in spec.split("+"):
+        parts = subspec.split(":")
 
-    f_kind = parts.pop(0) if parts else "through"
+        f_kind = parts.pop(0) if parts else "through"
 
-    model_name = parts.pop(0) if parts else "smoothing"
-    if model_name == "smoothing":
-        def_pth = "~/smoothing/models/imagenet/resnet50/noise_0.25/checkpoint.pth.tar"
-        pth = parts.pop(0) if parts else def_pth
-        model = load_smoothing_imagenet_model(os.path.expanduser(pth), **to_kwargs)
-    else:
-        if not hasattr(models, model_name):
-            raise ValueError(f"unknown model type {model_name}")
-        model = getattr(models, model_name)(pretrained=True)
+        model_name = parts.pop(0) if parts else "smoothing"
+        if model_name == "smoothing":
+            noise_level = float(parts.pop(0)) if parts else 0.25
+            model = load_smoothing_imagenet_model(noise_level=noise_level)
+        else:
+            if not hasattr(models, model_name):
+                raise ValueError(f"unknown model type {model_name}")
+            model = getattr(models, model_name)(pretrained=True)
 
-    assert not parts
-    return make_featurizer(model, kind=f_kind, input_scale=input_scale)
+        assert not parts
+        feats.append(make_featurizer(model, kind=f_kind, input_scale=input_scale))
+
+    return feats[0] if len(feats) == 1 else Parallel(*feats)
+
+
+class Parallel(nn.Sequential):
+    """
+    A parallel container: like torch.nn.Sequential, but concats the outputs
+    of the subparts together.
+    """
+
+    def forward(self, input):
+        return torch.cat([module(input) for module in self._modules.values()], 1)
