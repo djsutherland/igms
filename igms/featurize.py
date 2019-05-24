@@ -4,7 +4,7 @@ import types
 
 import torch
 from torch import nn
-from torchvision.models.resnet import ResNet, resnet50
+from torchvision import models
 
 ################################################################################
 # Normalization layer, since we need to do this to generator samples instead of
@@ -42,8 +42,17 @@ def extractor(cls, kind):
     return decorator
 
 
-@extractor(ResNet, "end")
-def last_hidden(self, x):
+def patch(model, kind):
+    try:
+        f = _registry[type(model), kind]
+    except KeyError:
+        raise TypeError(f"Don't know how to patch {kind} for type {type(model)}")
+
+    model.forward = types.MethodType(f, model)
+
+
+@extractor(models.ResNet, "end")
+def resnet_end(self, x):
     x = self.conv1(x)
     x = self.bn1(x)
     x = self.relu(x)
@@ -60,8 +69,8 @@ def last_hidden(self, x):
     return x
 
 
-@extractor(ResNet, "through")
-def all_intermediate(self, x):
+@extractor(models.ResNet, "through")
+def resnet_through(self, x):
     bits = []
 
     def add():
@@ -90,13 +99,41 @@ def all_intermediate(self, x):
     return torch.cat(bits, 1)
 
 
-def patch(model, kind):
-    try:
-        f = _registry[type(model), kind]
-    except KeyError:
-        raise TypeError(f"Don't know how to patch {kind} for type {type(model)}")
+@extractor(models.VGG, "through")
+@extractor(models.AlexNet, "through")
+def vgg_through(self, x):
+    bits = []
 
-    model.forward = types.MethodType(f, model)
+    def add():
+        bits.append(x.view(x.size(0), -1))
+
+    # x = self.features(x)
+    for layer in self.features:
+        x = layer(x)
+        if isinstance(layer, nn.MaxPool2d):
+            add()
+
+    x = self.avgpool(x)
+    x = x.view(x.size(0), -1)
+
+    # x = self.classifier(x)
+    for layer in self.classifier:
+        x = layer(x)
+        if isinstance(layer, nn.ReLU):
+            add()
+
+    return torch.cat(bits, 1)
+
+
+@extractor(models.VGG, "end")
+@extractor(models.AlexNet, "end")
+def vgg_end(self, x):
+    x = self.features(x)
+    x = self.avgpool(x)
+    x = x.view(x.size(0), -1)
+    # x = self.classifier(x)
+    x = self.classifier[:-1](x)
+    return x
 
 
 ################################################################################
@@ -140,9 +177,11 @@ def load_smoothing_imagenet_model(checkpoint_path, **kwargs):
         assert k.startswith("1.module.")
         return k[9:]
 
-    sd = {rewrite(k): v for k, v in torch.load(checkpoint_path)["state_dict"].items()}
+    checkpoint = torch.load(checkpoint_path)
+    assert checkpoint["arch"] == "resnet50"
+    sd = {rewrite(k): v for k, v in checkpoint["state_dict"].items()}
 
-    model = resnet50(pretrained=False).to(**kwargs)
+    model = models.resnet50(pretrained=False).to(**kwargs)
     model.load_state_dict(sd)
     return model
 
@@ -150,14 +189,17 @@ def load_smoothing_imagenet_model(checkpoint_path, **kwargs):
 def load_featurizer(spec, input_scale=(-1, 1), **to_kwargs):
     parts = spec.split(":")
 
-    kind = parts.pop(0) if parts else "through"
+    f_kind = parts.pop(0) if parts else "through"
 
-    model_type = parts.pop(0) if parts else "smoothing"
-    if model_type == "smoothing":
+    model_name = parts.pop(0) if parts else "smoothing"
+    if model_name == "smoothing":
         def_pth = "~/smoothing/models/imagenet/resnet50/noise_0.25/checkpoint.pth.tar"
         pth = parts.pop(0) if parts else def_pth
         model = load_smoothing_imagenet_model(os.path.expanduser(pth), **to_kwargs)
     else:
-        raise ValueError(f"unknown model type {model_type}")
+        if not hasattr(models, model_name):
+            raise ValueError(f"unknown model type {model_name}")
+        model = getattr(models, model_name)(pretrained=True)
 
-    return make_featurizer(model, kind=kind, input_scale=input_scale)
+    assert not parts
+    return make_featurizer(model, kind=f_kind, input_scale=input_scale)
