@@ -62,7 +62,7 @@ def parse_args(argv=None, check_dir=True):
 
     comp = parser.add_argument_group("computation options")
     comp.add_argument("--data-workers", type=int, default=2)
-    comp.add_argument("--device", default="cuda:0")
+    comp.add_argument("--device", default="cuda")
     args = parser.parse_args(argv)
 
     if args.resume:
@@ -114,35 +114,37 @@ def parse_args(argv=None, check_dir=True):
 def main():
     args, checkpoint = parse_args()
 
-    assert torch.cuda.is_available()
-    assert torch.backends.cudnn.enabled
-    torch.backends.cudnn.benchmark = True
+    device = torch.device(args.device)
+    if device.type == "cuda":
+        assert torch.cuda.is_available()
+        assert torch.backends.cudnn.enabled
+        torch.backends.cudnn.benchmark = True
 
     generator = make_generator(
         args.generator, output_size=args.out_size, z_dim=args.z_dim
-    ).to(args.device)
+    ).to(device)
     opt = get_optimizer(args.optimizer)(generator.parameters())
 
     if checkpoint:
         generator.load_state_dict(checkpoint["generator_state_dict"])
         opt.load_state_dict(checkpoint["optimizer_state_dict"])
-        log_latents = checkpoint["log_latents"].to(args.device)
+        log_latents = checkpoint["log_latents"].to(device)
         resume = (checkpoint["epoch"], checkpoint["batches"])
     else:
-        log_latents = torch.empty(64, generator.z_dim, device=args.device)
+        log_latents = torch.empty(64, generator.z_dim, device=device)
         log_latents.uniform_(-1, 1)
         resume = None
 
-    featurizer = load_featurizer(args.featurizer).to(args.device)
+    featurizer = load_featurizer(args.featurizer).to(device)
     top_kernel = pick_kernel(args.kernel)
     estimator = Estimator[args.mmd_estimator]
 
     if args.image_noise:
         real_noise = torch.empty(
-            args.batch_size, *generator.output_shape, device=args.device
+            args.batch_size, *generator.output_shape, device=device
         )
         fake_noise = torch.empty(
-            args.batch_size, *generator.output_shape, device=args.device
+            args.batch_size, *generator.output_shape, device=device
         )
 
     def loss_fn(real_imgs, fake_imgs):
@@ -157,7 +159,7 @@ def main():
     dataloader = DataLoader(
         dataset,
         batch_size=args.batch_size,
-        # pin_memory=True,
+        pin_memory=True,
         shuffle=True,
         drop_last=True,
         num_workers=args.data_workers,
