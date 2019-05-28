@@ -1,224 +1,389 @@
-from functools import partial
+"""
+Some probably over-engineered infrastructure for lazily computing kernel
+matrices, allowing for various sums / means / etc used by MMD-related estimators.
+"""
+from enum import Enum
+from functools import partial, wraps
 import inspect
+from inspect import Parameter
 
 import torch
 
 from .utils import as_tensors, floats, float_or_none, floats_or_none
 
 
-# Infrastructure to make a pick_kernel() function that parses string specs.
+def _cache(f):
+    cache_name = f.__name__
 
-_registry = {}
-_expected_params = {"X", "Y", "n1", "XY_only"}
+    @wraps(f)
+    def wrapper(self):
+        try:
+            return self._cache[cache_name]
+        except KeyError:
+            val = f(self)
+            self._cache[cache_name] = val
+            return val
 
-
-def register(original_func=None, *, name=None):
-    def decorator(func):
-        sig = inspect.signature(func)
-        arg_info = []
-        for kw, param in sig.parameters.items():
-            if kw in _expected_params:
-                continue
-            fn = param.annotation
-            arg_info.append((kw, str if fn is inspect.Parameter.empty else fn))
-
-        _registry[name or func.__name__] = (func, arg_info)
-        return func
-
-    return decorator(original_func) if original_func else decorator
-
-
-def pick_kernel(spec):
-    parts = spec.split(":")
-    fn, arg_info = _registry[parts[0]]
-    assert len(parts) - 1 <= len(arg_info)
-    kwargs = {name: parser(s) for s, (name, parser) in zip(parts[1:], arg_info)}
-    return partial(fn, **kwargs)
-
-
-class KernelPair:
-    """
-    An over-engineered class to support storing k(X, Y) either as three
-    matrices or as one big one.
-    """
-
-    def __init__(self, K, XX=None, YY=None, n_X=None, const_diagonal=False):
-        K, XX, YY = as_tensors(K, XX, YY)
-        self.const_diagonal = const_diagonal
-
-        if n_X is None or n_X == K.shape[0]:
-            self.n_X, self.n_Y = K.shape
-            self.XY = K
-            self.YX = K.t()
-
-            if XX is None:
-                assert YY is None
-            else:
-                self.XX = XX
-                self.YY = YY
-        else:
-            assert XX is None and YY is None
-            self.n_X = n_X
-            self.n = K.shape[0]
-            assert K.shape[1] == self.n
-            self.n_Y = self.n - self.n_X
-
-            self._joint = K
-            self.XX = K[:n_X, :n_X]
-            self.XY = K[:n_X, n_X:]
-            self.YX = K[n_X:, :n_X]
-            self.YY = K[n_X:, n_X:]
-
-    @property
-    def joint(self):
-        if not hasattr(self, "_joint"):
-            self._joint = K = torch.cat(
-                [torch.cat([self.XX, self.XY], 1), torch.cat([self.YX, self.YY], 1)], 0
-            )
-
-            n_X = self.n_X
-            self.XX = K[:n_X, :n_X]
-            self.XY = K[:n_X, n_X:]
-            self.YX = K[n_X:, :n_X]
-            self.YY = K[n_X:, n_X:]
-        return self._joint
-
-    def XX_trace(self):
-        if self.const_diagonal is False:
-            return self.XX.trace()
-        else:
-            return self.n_X * self.const_diagonal
-
-    def YY_trace(self):
-        if self.const_diagonal is False:
-            return self.YY.trace()
-        else:
-            return self.n_Y * self.const_diagonal
+    return wrapper
 
 
 ################################################################################
+# Matrix wrappers that cache sums / etc.
 
-# TODO: this could probably be better thought out. Maybe classes + inheritance?
 
+class Matrix:
+    def __init__(self, M, const_diagonal=False):
+        self.mat = M = torch.as_tensor(M)
+        self.m, self.n = self.shape = M.shape
+        self._cache = {}
 
-def _make_pair(K_XY, get_K_XX, get_K_YY, Y_none, n1, XY_only, **kwargs):
-    "A helper to handle computing various things reasonably efficiently."
-    if Y_none:
-        if n1 is None:
-            return KernelPair(K_XY, K_XY, K_XY, **kwargs)
+    @_cache
+    def row_sums(self):
+        return self.mat.sum(0)
+
+    @_cache
+    def col_sums(self):
+        return self.mat.sum(1)
+
+    @_cache
+    def row_sums_sq_sum(self):
+        sums = self.row_sums()
+        return sums @ sums
+
+    @_cache
+    def col_sums_sq_sum(self):
+        sums = self.col_sums()
+        return sums @ sums
+
+    @_cache
+    def sum(self):
+        if "row_sums" in self._cache:
+            return self.row_sums().sum()
+        elif "col_sums" in self._cache:
+            return self.col_sums().sum()
         else:
-            return KernelPair(K_XY, n_X=n1, **kwargs)
-    elif XY_only:
-        return KernelPair(K_XY, **kwargs)
+            return self.mat.sum()
+
+    def mean(self):
+        return self.sum() / (self.m * self.n)
+
+    @_cache
+    def sq_sum(self):
+        flat = self.mat.view(-1)
+        return flat @ flat
+
+    def __repr__(self):
+        return f"<{type(self).__name__}, {self.m} by {self.n}>"
+
+
+class SquareMatrix(Matrix):
+    def __init__(self, M):
+        super().__init__(M)
+        assert self.m == self.n
+
+    @_cache
+    def diagonal(self):
+        return self.mat.diagonal()
+
+    @_cache
+    def trace(self):
+        return self.mat.trace()
+
+    @_cache
+    def sq_trace(self):
+        diag = self.diagonal()
+        return diag @ diag
+
+    @_cache
+    def offdiag_row_sums(self):
+        return self.row_sums() - self.diagonal()
+
+    @_cache
+    def offdiag_col_sums(self):
+        return self.col_sums() - self.diagonal()
+
+    @_cache
+    def offdiag_row_sums_sq_sum(self):
+        sums = self.offdiag_row_sums()
+        return sums @ sums
+
+    @_cache
+    def offdiag_col_sums_sq_sum(self):
+        sums = self.offdiag_col_sums()
+        return sums @ sums
+
+    @_cache
+    def offdiag_sum(self):
+        return self.offdiag_row_sums().sum()
+
+    def offdiag_mean(self):
+        return self.offdiag_sum() / (self.n * (self.n - 1))
+
+    @_cache
+    def offdiag_sq_sum(self):
+        return self.sq_sum() - self.sq_trace()
+
+
+class ConstDiagMatrix(SquareMatrix):
+    def __init__(self, M, diag_value):
+        super().__init__(M)
+        self.diag_value = diag_value
+
+    @_cache
+    def diagonal(self):
+        return self.mat.new_full((1,), self.diag_value)
+
+    def trace(self):
+        return self.n * self.diag_value
+
+    def sq_trace(self):
+        return self.n * (self.diag_value ** 2)
+
+
+def as_matrix(M, const_diagonal=False):
+    if const_diagonal is not False:
+        return ConstDiagMatrix(M, diag_value=const_diagonal)
+    elif M.shape[0] == M.shape[1]:
+        return SquareMatrix(M)
     else:
-        return KernelPair(K_XY, get_K_XX(), get_K_YY(), **kwargs)
+        return Matrix(M)
+
+
+################################################################################
+# A function to choose kernel classes from a string spec.
+
+_registry = {}
+_skip_types = frozenset((Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD))
+
+
+def register(original_cls=None, *, name=None):
+    def decorator(cls):
+        sig = inspect.signature(cls)
+        arg_info = []
+        for kw, param in sig.parameters.items():
+            if param.kind in _skip_types:
+                continue
+            parser = param.annotation
+            arg_info.append((kw, str if parser is Parameter.empty else parser))
+
+        _registry[(name or cls.__name__).lower()] = (cls, arg_info)
+        return cls
+
+    return decorator(original_cls) if original_cls else decorator
+
+
+def pick_kernel(spec):
+    name, *args = spec.split(":")
+
+    name = "".join(x for x in name.split("_")).lower()
+
+    fn, arg_info = _registry[name]
+    assert len(args) <= len(arg_info)
+    kwargs = {name: parser(s) for s, (name, parser) in zip(args, arg_info)}
+    return partial(fn, **kwargs)
+
+
+################################################################################
+# Kernel base class
+
+_StorageMode = Enum("_StorageMode", "BOTH TO_SELF STACKED")
+
+
+class LazyKernelPair:
+    def __init__(self, X, Y=None, n_X=None):
+        self.X, Y = as_tensors(X, Y)
+
+        if n_X is not None:
+            assert Y is None
+            self.n_X = n_X
+            self.n_Y = self.X.shape[0] - n_X
+            self._storage = _StorageMode.STACKED
+        else:
+            self.n_X = self.X.shape[0]
+            if Y is None:
+                self.n_Y = self.n_X
+                self._storage = _StorageMode.TO_SELF
+            else:
+                self.Y = Y
+                self.n_Y = self.Y.shape[0]
+                self._storage = _StorageMode.BOTH
+
+        self._cache = {}
+        if not hasattr(self, "const_diagonal"):
+            self.const_diagonal = False
+
+    def __repr__(self):
+        return f"<{type(self).__name__}({self.n_X} to {self.n_Y})>"
+
+    def _precompute(self, A):
+        return None
+
+    def _compute(self, A, B, A_info, B_info):
+        raise NotImplementedError()
+
+    @_cache
+    def _precompute_X(self):
+        return self._precompute(self.X)
+
+    @_cache
+    def _precompute_Y(self):
+        return self._precompute(self.Y)
+
+    @_cache
+    def _compute_stacked(self):
+        big_info = self._precompute(self.X)
+        return self._compute(self.X, self.X, big_info, big_info)
+
+    @property
+    @_cache
+    def XX(self):
+        if self._storage == _StorageMode.STACKED:
+            big_res = self._compute_stacked()
+            return as_matrix(
+                big_res[: self.n_X, : self.n_X], const_diagonal=self.const_diagonal
+            )
+        else:
+            X_info = self._precompute_X()
+            res = self._compute(self.X, self.X, X_info, X_info)
+            return as_matrix(res, const_diagonal=self.const_diagonal)
+
+    @property
+    @_cache
+    def YY(self):
+        if self._storage == _StorageMode.STACKED:
+            big_res = self._compute_stacked()
+            return as_matrix(
+                big_res[self.n_X :, self.n_X :], const_diagonal=self.const_diagonal
+            )
+        elif self._storage == _StorageMode.TO_SELF:
+            return self.XX()
+        else:
+            Y_info = self._precompute_Y()
+            res = self._compute(self.Y, self.Y, Y_info, Y_info)
+            return as_matrix(res, const_diagonal=self.const_diagonal)
+
+    @property
+    @_cache
+    def XY(self):
+        if self._storage == _StorageMode.STACKED:
+            big_res = self._compute_stacked()
+            return as_matrix(big_res[: self.n_X, self.n_X :])
+        elif self._storage == _StorageMode.TO_SELF:
+            return self.XX()
+        else:
+            X_info = self._precompute_X()
+            Y_info = self._precompute_Y()
+            res = self._compute(self.X, self.Y, X_info, Y_info)
+            return as_matrix(res)
+
+    @_cache
+    def joint(self):
+        if self._storage == _StorageMode.STACKED:
+            return as_matrix(
+                self._compute_stacked(), const_diagonal=self.const_diagonal
+            )
+        else:
+            XX = self.XX.mat
+            XY = self.XY.mat
+            YY = self.YY.mat
+            return torch.cat([torch.cat([XX, XY], 1), torch.cat([XY.t(), YY], 1)], 0)
+
+    def as_tensors(self, *args, **kwargs):
+        kwargs.setdefault("device", self.X.device)
+        kwargs.setdefault("dtype", self.X.dtype)
+        return tuple(None if r is None else torch.as_tensor(r, **kwargs) for r in args)
+
+
+################################################################################
+# Finally, the actual kernel functions.
 
 
 @register
-def linear(X, Y=None, n1=None, XY_only=False):
-    X, Y = as_tensors(X, Y)
-    XY = X @ (X if Y is None else Y).t()
-    return _make_pair(XY, lambda: X @ X.t(), lambda: Y @ Y.t(), Y is None, n1, XY_only)
+class Linear(LazyKernelPair):
+    def _compute(self, A, B, A_info, B_info):
+        return A @ B.t()
 
 
 @register
-def polynomial(
-    X,
-    Y=None,
-    n1=None,
-    XY_only=False,
-    degree: float = 3,
-    gamma: float_or_none = None,
-    coef0: float = 1,
-):
-    "k(X, Y) = (gamma <X, Y> + coef0)^degree; gamma defaults to 1/dim"
-    X, Y = as_tensors(X, Y)
-    if gamma is None:
-        gamma = 1 / X.shape[1]
+class Polynomial(LazyKernelPair):
+    def __init__(
+        self,
+        *args,
+        degree: float = 3,
+        gamma: float_or_none = None,
+        coef0: float = 1,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.degree = degree
+        self._gamma = gamma
+        self.coef0 = coef0
 
-    XY = X @ (X if Y is None else Y).t()
-    K_XY = (gamma * XY + coef0) ** degree
-    return _make_pair(
-        K_XY,
-        lambda: (gamma * (X @ X.t()) + coef0) ** degree,
-        lambda: (gamma * (Y @ Y.t()) + coef0) ** degree,
-        Y is None,
-        n1,
-        XY_only,
-    )
+    def _precompute(self, X, Y):
+        if self._gamma is None:
+            self.gamma = 1 / X.shape[1]
+        else:
+            self.gamma = self._gamma
+
+    def _compute(self, A, B, A_info, B_info):
+        XY = A @ B.t()
+        return (self.gamma * XY + self.coef0) ** self.degree
 
 
 @register
-def linear_and_square(X, Y=None, n1=None, XY_only=False, w: float = 1):
+class LinearAndSquare(LazyKernelPair):
     "k(X, Y) = <X, Y> + w <X^2, Y^2>, with the squaring elementwise."
-    X, Y = as_tensors(X, Y)
 
-    Xsq = X * X
-    Ysq = Xsq if Y is None else (Y * Y)
+    def __init__(self, *args, w: float = 1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.w = w
 
-    def get_K(m1, m2, m1sq, m2sq):
-        return m1 @ m2.t() + w * (m1sq @ m2sq.t())
+    def _precompute(self, A):
+        return A * A
 
-    K_XY = get_K(X, Y, Xsq, Ysq)
-    get_K_XX = partial(get_K, X, X, Xsq, Xsq)
-    get_K_YY = partial(get_K, Y, Y, Ysq, Ysq)
-    return _make_pair(K_XY, get_K_XX, get_K_YY, Y is None, n1, XY_only)
+    def _compute(self, A, B, A_info, B_info):
+        return A @ A.t() + self.w * (A_info @ B_info.t())
 
 
 @register
-def mix_rbf_dot(
-    X,
-    Y=None,
-    n1=None,
-    XY_only=False,
-    sigmas_sq: floats = (1,),
-    wts: floats_or_none = None,
-    add_dot: float = 0,
-):
-    X, Y, wts, sigmas_sq = as_tensors(X, Y, wts, sigmas_sq)
+class MixRBFDot(LazyKernelPair):
+    def __init__(
+        self,
+        *args,
+        sigmas_sq: floats = (1,),
+        wts: floats_or_none = None,
+        add_dot: float = 0,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.sigmas_sq, self.wts = self.as_tensors(sigmas_sq, wts)
+        self.add_dot = add_dot
+        if not add_dot:
+            self.const_diagonal = 1 if self.wts is None else self.wts.sum()
 
-    X_sqnorms = torch.einsum("ij,ij->i", X, X)
+    def _precompute(self, A):
+        return torch.einsum("ij,ij->i", A, A)
 
-    if Y is None:
-        Y_sqnorms = X_sqnorms
-    else:
-        Y_sqnorms = torch.einsum("ij,ij->i", Y, Y)
-
-    def get_K(m1, m2, sqnorms1, sqnorms2):
-        dot = m1 @ m2.t()
-        D2 = sqnorms1[:, None] + sqnorms2[None, :] - 2 * dot
-        K_parts = torch.exp(D2[None, :, :] / (-2 * sigmas_sq[:, None, None]))
-        if wts is None:
+    def _compute(self, A, B, A_info, B_info):
+        dot = A @ B.t()
+        D2 = A_info[:, None] + B_info[None, :] - 2 * dot
+        K_parts = torch.exp(D2[None, :, :] / (-2 * self.sigmas_sq[:, None, None]))
+        if self.wts is None:
             K = K_parts.mean(0)
         else:
-            K = torch.einsum("sij,s->ij", K_parts, wts)
-        return (K + add_dot * dot) if add_dot else K
-
-    K_XY = get_K(X, X if Y is None else Y, X_sqnorms, Y_sqnorms)
-    get_K_XX = partial(get_K, X, X, X_sqnorms, Y_sqnorms)
-    get_K_YY = partial(get_K, Y, Y, Y_sqnorms, Y_sqnorms)
-    diag = 1 if wts is None else wts.sum().item()
-    return _make_pair(
-        K_XY, get_K_XX, get_K_YY, Y is None, n1, XY_only, const_diagonal=diag
-    )
+            K = torch.einsum("sij,s->ij", K_parts, self.wts)
+        return (K + self.add_dot * dot) if self.add_dot else K
 
 
 @register
-def mix_rbf(
-    X,
-    Y=None,
-    n1=None,
-    XY_only=False,
-    sigmas_sq: floats = (1,),
-    wts: floats_or_none = None,
-):
-    return mix_rbf_dot(
-        X=X, Y=Y, n1=n1, XY_only=XY_only, sigmas_sq=sigmas_sq, wts=wts, add_dot=0
-    )
+class MixRBF(MixRBFDot):
+    def __init__(
+        self, *args, sigmas_sq: floats = (1,), wts: floats_or_none = None, **kwargs
+    ):
+        super().__init__(*args, sigmas_sq=sigmas_sq, wts=wts, add_dot=0, **kwargs)
 
 
 @register
-def rbf(X, Y=None, n1=None, XY_only=False, sigma_sq: float = 1):
-    return mix_rbf_dot(
-        X=X, Y=Y, n1=n1, XY_only=XY_only, sigmas_sq=(sigma_sq,), add_dot=0
-    )
+class RBF(MixRBFDot):
+    def __init__(self, *args, sigma_sq: float = 1, **kwargs):
+        super().__init__(*args, sigmas_sq=(sigma_sq,), wts=None, add_dot=0, **kwargs)
