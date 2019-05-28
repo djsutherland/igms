@@ -153,6 +153,7 @@ def as_matrix(M, const_diagonal=False):
 # A function to choose kernel classes from a string spec.
 
 _registry = {}
+_skip_names = frozenset(("X", "Y", "n_X"))
 _skip_types = frozenset((Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD))
 
 
@@ -161,7 +162,7 @@ def register(original_cls=None, *, name=None):
         sig = inspect.signature(cls)
         arg_info = []
         for kw, param in sig.parameters.items():
-            if param.kind in _skip_types:
+            if param.name in _skip_names or param.kind in _skip_types:
                 continue
             parser = param.annotation
             arg_info.append((kw, str if parser is Parameter.empty else parser))
@@ -216,10 +217,7 @@ class LazyKernelPair:
         return f"<{type(self).__name__}({self.n_X} to {self.n_Y})>"
 
     def _precompute(self, A):
-        return None
-
-    def _compute(self, A, B, A_info, B_info):
-        raise NotImplementedError()
+        return ()
 
     @_cache
     def _precompute_X(self):
@@ -232,7 +230,7 @@ class LazyKernelPair:
     @_cache
     def _compute_stacked(self):
         big_info = self._precompute(self.X)
-        return self._compute(self.X, self.X, big_info, big_info)
+        return self._compute(self.X, self.X, *big_info, *big_info)
 
     @property
     @_cache
@@ -244,7 +242,7 @@ class LazyKernelPair:
             )
         else:
             X_info = self._precompute_X()
-            res = self._compute(self.X, self.X, X_info, X_info)
+            res = self._compute(self.X, self.X, *X_info, *X_info)
             return as_matrix(res, const_diagonal=self.const_diagonal)
 
     @property
@@ -259,7 +257,7 @@ class LazyKernelPair:
             return self.XX()
         else:
             Y_info = self._precompute_Y()
-            res = self._compute(self.Y, self.Y, Y_info, Y_info)
+            res = self._compute(self.Y, self.Y, *Y_info, *Y_info)
             return as_matrix(res, const_diagonal=self.const_diagonal)
 
     @property
@@ -273,7 +271,7 @@ class LazyKernelPair:
         else:
             X_info = self._precompute_X()
             Y_info = self._precompute_Y()
-            res = self._compute(self.X, self.Y, X_info, Y_info)
+            res = self._compute(self.X, self.Y, *X_info, *Y_info)
             return as_matrix(res)
 
     @_cache
@@ -300,7 +298,7 @@ class LazyKernelPair:
 
 @register
 class Linear(LazyKernelPair):
-    def _compute(self, A, B, A_info, B_info):
+    def _compute(self, A, B):
         return A @ B.t()
 
 
@@ -308,24 +306,19 @@ class Linear(LazyKernelPair):
 class Polynomial(LazyKernelPair):
     def __init__(
         self,
-        *args,
+        X,
+        Y=None,
+        n_X=None,
         degree: float = 3,
         gamma: float_or_none = None,
         coef0: float = 1,
-        **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(X, Y, n_X=n_X)
         self.degree = degree
-        self._gamma = gamma
+        self.gamma = 1 / X.shape[1] if gamma is None else gamma
         self.coef0 = coef0
 
-    def _precompute(self, X, Y):
-        if self._gamma is None:
-            self.gamma = 1 / X.shape[1]
-        else:
-            self.gamma = self._gamma
-
-    def _compute(self, A, B, A_info, B_info):
+    def _compute(self, A, B):
         XY = A @ B.t()
         return (self.gamma * XY + self.coef0) ** self.degree
 
@@ -334,39 +327,40 @@ class Polynomial(LazyKernelPair):
 class LinearAndSquare(LazyKernelPair):
     "k(X, Y) = <X, Y> + w <X^2, Y^2>, with the squaring elementwise."
 
-    def __init__(self, *args, w: float = 1, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, X, Y=None, n_X=None, w: float = 1):
+        super().__init__(X, Y, n_X=n_X)
         self.w = w
 
     def _precompute(self, A):
-        return A * A
+        return (A * A,)
 
-    def _compute(self, A, B, A_info, B_info):
-        return A @ A.t() + self.w * (A_info @ B_info.t())
+    def _compute(self, A, B, A_squared, B_squared):
+        return A @ A.t() + self.w * (A_squared @ B_squared.t())
 
 
 @register
 class MixRBFDot(LazyKernelPair):
     def __init__(
         self,
-        *args,
+        X,
+        Y=None,
+        n_X=None,
         sigmas_sq: floats = (1,),
         wts: floats_or_none = None,
         add_dot: float = 0,
-        **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(X, Y, n_X=n_X)
         self.sigmas_sq, self.wts = self.as_tensors(sigmas_sq, wts)
         self.add_dot = add_dot
         if not add_dot:
             self.const_diagonal = 1 if self.wts is None else self.wts.sum()
 
     def _precompute(self, A):
-        return torch.einsum("ij,ij->i", A, A)
+        return (torch.einsum("ij,ij->i", A, A),)
 
-    def _compute(self, A, B, A_info, B_info):
+    def _compute(self, A, B, A_sqnorms, B_sqnorms):
         dot = A @ B.t()
-        D2 = A_info[:, None] + B_info[None, :] - 2 * dot
+        D2 = A_sqnorms[:, None] + B_sqnorms[None, :] - 2 * dot
         K_parts = torch.exp(D2[None, :, :] / (-2 * self.sigmas_sq[:, None, None]))
         if self.wts is None:
             K = K_parts.mean(0)
@@ -378,12 +372,12 @@ class MixRBFDot(LazyKernelPair):
 @register
 class MixRBF(MixRBFDot):
     def __init__(
-        self, *args, sigmas_sq: floats = (1,), wts: floats_or_none = None, **kwargs
+        self, X, Y=None, n_X=None, sigmas_sq: floats = (1,), wts: floats_or_none = None
     ):
-        super().__init__(*args, sigmas_sq=sigmas_sq, wts=wts, add_dot=0, **kwargs)
+        super().__init__(X, Y, n_X=n_X, sigmas_sq=sigmas_sq, wts=wts, add_dot=0)
 
 
 @register
 class RBF(MixRBFDot):
-    def __init__(self, *args, sigma_sq: float = 1, **kwargs):
-        super().__init__(*args, sigmas_sq=(sigma_sq,), wts=None, add_dot=0, **kwargs)
+    def __init__(self, X, Y=None, n_X=None, sigma_sq: float = 1):
+        super().__init__(X, Y, n_X=n_X, sigmas_sq=(sigma_sq,), wts=None, add_dot=0)
