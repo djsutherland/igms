@@ -8,6 +8,8 @@
 \usepackage[style=authoryear,maxbibnames=12,maxcitenames=2]{biblatex}
 \addbibresource{refs.bib}
 
+\usepackage[capitalize]{cleveref}
+
 \DeclareMathOperator{\E}{\mathbb{E}}
 \DeclareMathOperator{\Var}{Var}
 \DeclareMathOperator{\Cov}{Cov}
@@ -15,504 +17,1041 @@
 \DeclareMathOperator{\mmdsqu}{\widehat{MMD}_U^2}
 \newcommand{\tp}{^\mathsf{T}}
 
-\title{Derivations of MMD variance}
+\newcommand{\Kxy}{\mathbf{K_{XY}}}
+\newcommand{\Kxx}{\mathbf{K_{XX}}}
+\newcommand{\Kyy}{\mathbf{K_{YY}}}
+\newcommand{\Kxz}{\mathbf{K_{XZ}}}
+\newcommand{\Kzz}{\mathbf{K_{ZZ}}}
+\newcommand{\Ktxx}{\mathbf{\tilde{K}_{XX}}}
+\newcommand{\Ktyy}{\mathbf{\tilde{K}_{YY}}}
+\newcommand{\Ktzz}{\mathbf{\tilde{K}_{ZZ}}}
+
+\newcommand{\one}{\mathbf{1}}
+
+\newcommand{\X}{\mathcal{X}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\h}{\mathcal{H}}
+
+\newcommand{\PX}{\mathbb{P}_X}
+\newcommand{\PY}{\mathbb{P}_Y}
+\newcommand{\PZ}{\mathbb{P}_Z}
+
+\newcommand{\muX}{\mu_X}
+\newcommand{\muY}{\mu_Y}
+\newcommand{\muZ}{\mu_Z}
+
+\newcommand{\setX}{\mathbf{X}}
+\newcommand{\setY}{\mathbf{Y}}
+\newcommand{\setZ}{\mathbf{Z}}
+\newcommand{\setV}{\mathbf{V}}
+\newcommand{\setW}{\mathbf{W}}
+
+\makeatletter
+
+\DeclareRobustCommand{\abs}{\@ifstar\@@abs\@abs}
+\newcommand{\@abs}[1]{\left\lVert #1 \right\rvert}
+\newcommand{\@@abs}[1]{\lVert #1 \rvert}
+
+\DeclareRobustCommand{\norm}{\@ifstar\@@norm\@norm}
+\newcommand{\@norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\@@norm}[1]{\lVert #1 \rVert}
+
+\DeclareRobustCommand{\inner}{\@ifstar\@@inner\@inner}
+\newcommand{\@inner}[2]{\left\langle #1, #2 \right\rangle}
+\newcommand{\@@inner}[2]{\langle #1, #2 \rangle}
+
+\makeatother
+
+
+\title{Estimators for the asymptotic variance of MMD estimators}
 \author{D.\ J.\ Sutherland}
-\date{}
+\date{June 2019}
 
 \begin{document}
 \maketitle
-\allowdisplaybreaks
+% \allowdisplaybreaks
 
-This note reprises the derivation of the asymptotic variance of U-statistic MMD estimators from \textcite{three-sample} and \textcite{opt-mmd}, correcting some small biases in the estimator of the former. The first section is essentially Appendix A of \textcite{opt-mmd}, and the second is a similar estimator for the difference in MMDs.
+\begin{abstract}
+The maximum mean discrepancy (MMD) is a kernel-based distance between probability distributions useful in many applications \parencite{mmd-jmlr},
+bearing a simple estimator with pleasing computational and statistical properties.
+\Textcite{three-sample} used the asymptotic theory of U-statistics
+to derive estimators for the asymptotic variance of the U-statistic MMD estimator
+and differences between two such estimators.
+(Variance estimators are very useful in, for example, two-sample testing problems.)
+Their estimator for this variance, however, is unnecessarily biased.
+\Textcite{opt-mmd} removed some of these biases,
+but in fact missed some (small) biases in the estimator.
+In this note,
+we derive a truly unbiased estimator for the variance of both the squared MMD and the difference of two correlated squared MMD estimators.
+\end{abstract}
 
-\section{MMD variance}
+We give only minimal background in this note;
+see \textcite{three-sample,opt-mmd} for more about why one would care about this problem.
 
-Recall that our kernel $k$ corresponds to a reproducing kernel Hilbert space $\mathcal H$
-such that there exists a function $\varphi$ with $k(x, y) = \langle \varphi(x), \varphi(y) \rangle_{\mathcal H}$.
-Define $\mu_X := \E_{x \sim P}[ \varphi(x) ]$,
-$\mu_Y := \E_{y \sim Q}[ \varphi(y) ]$ to be the kernel mean embeddings of $X$ and $Y$;
-we then have that $\mmd(P, Q) = \lVert \mu_X - \mu_Y \rVert_{\mathcal H}$.
-Below, we will supress the explicit dependence on $\mathcal H$ for brevity.
+Given a positive semidefinite kernel $k : \X \times \X \to \R$ corresponding to an RKHS $\h$,
+there exists a feature map $\varphi : \X \to \h$
+such that $k(X, Y) = \inner{\varphi(X)}{\varphi(Y)}$.
+The mean embedding \parencite{mean-embeddings} of a distribution $\PX$ is
+$\muX := \E_{X \sim \PX}[ \varphi(X) ] \in \h$,
+and the MMD is merely the distance between mean embeddings:
+\[
+  \mmd(\PX, \PY)
+  = \norm{ \muX - \muY }
+  = \left(
+      \E_{X, X' \sim \PX}\left[ k(X, X') \right]
+    + \E_{Y, Y' \sim \PY}\left[ k(Y, Y') \right]
+    - 2 \E_{X \sim \PX, Y \sim \PY}\left[ k(X, Y) \right]
+    \right)^{1/2}
+.\]
 
-Let \(v := (x, y)\) and \[
-h(v_1, v_2) := k(x_1, x_2) + k(y_1, y_2) - k(x_1, y_2) - k(x_2, y_1)
+Suppose we have independent samples
+$\setX := \{ X_i \}_{i=1}^m \sim \PX^m$,
+$\setY := \{ Y_i \}_{i=1}^m \sim \PY^m$,
+$\setZ := \{ Z_i \}_{i=1}^m \sim \PZ^m$.
+The following is an unbiased estimator with \emph{nearly} minimal variance among unbiased estimators \parencite{mmd-jmlr}:
+\[
+    \mmdsqu(\setX, \setY)
+    := \frac{1}{m (m - 1)} \sum_{i \ne j}^m \left[
+        k(X_i, X_j) + k(Y_i, Y_j) - k(X_i, Y_j) - k(X_j, Y_i)
+    \right]
+.\]
+Compared to the MVUE, terms of the form $k(X_i, Y_i)$ are dropped.
+This estimator, however, is a $U$ statistic,
+for which there is well-established theory \parencite[Chapter~5]{serfling}
+for e.g.\ the asymptotic variance.
+
+We assume Bochner integrability throughout this note;
+for unbounded kernels on unbounded distributions,
+this technical condition must be verified.
+
+Readers looking only for the final estimators, and not the fairly tedious derivations,
+should skip simply to \eqref{eq:final-mmd-est} and \eqref{eq:final-diff-est}. 
+
+
+\section{Asymptotic variance expressions} \label{sec:var-expressions}
+
+We will first derive expressions for the asymptotic variances of
+$\mmdsqu(\setX, \setY)$
+and $\mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)$.
+This section is quite similar to Appendix A of \textcite{three-sample},
+but avoids unnecessarily dropping lower-order terms (which provides little computational advantage).
+The result \eqref{eq:final-mmd-exp} of \cref{sec:mmd-expression} is identical to that of \textcite{opt-mmd}.
+
+
+\subsection{Variance of the MMD estimator} \label{sec:mmd-expression}
+
+Let $V_i$ refer to the pair $(X_i, Y_i)$,
+and define the function
+\[
+    h(V_1, V_2) := k(X_1, X_2) + k(Y_1, Y_2) - k(X_1, Y_2) - k(X_2, Y_1)
 .\]
 Then \[
-\mmdsqu(X, Y) = \frac{1}{\binom{m}{2}} \sum_{i \ne j} h(v_i, v_j)
+\mmdsqu(\setX, \setY) = \frac{1}{m (m-1)} \sum_{i \ne j} h(V_i, V_j)
 ,\]
-and by the theory of \(U\)-statistics \parencite[Chapter~5]{serfling} we have that \[
-\Var\left[ \mmdsqu(X, Y) \right] \to \frac{4 (m-2)}{m (m-1)} \zeta_1 + \frac{2}{m (m-1)} \zeta_2
-,\] where \[
-\zeta_1 := \Var_{v_1}\left[ \E_{v_2}\left[ h(v_1, v_2) \right] \right],
-\qquad
-\zeta_2 := \Var_{v_1, v_2}\left[ h(v_1, v_2) \right]
+which is a $U$-statistic on the joint data $\setV$.
+Thus standard results \parencite[Chapter~5]{serfling}
+give us
+\[
+    \Var\left[ \mmdsqu(\setX, \setY) \right]
+    \to \frac{4 (m-2)}{m (m-1)} \zeta_1 + \frac{2}{m (m-1)} \zeta_2
+,\] where
+\[
+    \zeta_1 := \Var_{V_1}\left[ \E_{V_2}\left[ h(V_1, V_2) \right] \right],
+    \qquad
+    \zeta_2 := \Var_{V_1, V_2}\left[ h(V_1, V_2) \right]
 .\]
 
 The first-order term $\zeta_1$ is:
-    \begin{align*}
-\zeta_1
-&=  \Var_{v_1}\left[ \E_{v_2}\left[ h(v_1, v_2) \right] \right]
-\\&= \Var_{x_1, y_1}\left[
-      \E_{x_2} k(x_1, x_2)
-    + \E_{y_2} k(y_1, y_2)
-    - \E_{y_2} k(x_1, y_2)
-    - \E_{x_2} k(x_2, y_1)
-\right]
-\\&= \Var_{x, y}\left[
-    \langle \varphi(x), \mu_X \rangle
-    + \langle \varphi(y), \mu_Y \rangle
-    - \langle \varphi(x), \mu_Y \rangle
-    - \langle \mu_X, \varphi(y) \rangle
-\right]
-\\&= \Var\left[ \langle \varphi(x), \mu_X \rangle \right]
-   + \Var\left[ \langle \varphi(y), \mu_Y \rangle \right]
-   + \Var\left[ \langle \varphi(x), \mu_Y \rangle \right]
-   + \Var\left[ \langle \mu_X, \varphi(y) \rangle \right]
+\begin{align*}
+    \zeta_1
+  &=
+    \Var_{V_1}\left[ \E_{V_2}\left[ h(V_1, V_2) \right] \right]
+\\&=
+    \Var_{X_1, Y_1}\left[
+      \E_{X_2} k(X_1, X_2)
+    + \E_{Y_2} k(Y_1, Y_2)
+    - \E_{Y_2} k(X_1, Y_2)
+    - \E_{X_2} k(X_2, Y_1)
+    \right]
+\\&=
+    \Var_{X, Y}\left[
+      \inner{\varphi(X)}{\muX}
+    + \inner{\varphi(Y)}{\muY}
+    - \inner{\varphi(X)}{\muY}
+    - \inner{\muX}{\varphi(Y)}
+    \right]
+\\&=
+    \Var\left[ \inner{\varphi(X)}{\muX} \rangle \right]
+  + \Var\left[ \inner{\varphi(Y)}{\muY} \rangle \right]
+  + \Var\left[ \inner{\varphi(X)}{\muY} \rangle \right]
+  + \Var\left[ \inner{\muX}{\varphi(Y)} \rangle \right]
 \\&\quad
-   - 2 \Cov\left( \langle \varphi(x), \mu_X \rangle, \langle \varphi(x), \mu_Y \rangle \right)
-   - 2 \Cov\left( \langle \varphi(y), \mu_Y \rangle, \langle \mu_X, \varphi(y) \rangle \right)
+  - 2 \Cov\left( \inner{\varphi(X)}{\muX}, \inner{\varphi(X)}{\muY} \right)
+  - 2 \Cov\left( \inner{\varphi(Y)}{\muY}, \inner{\muX}{\varphi(Y)} \right)
 .\end{align*}
-Note that
+Noting that
 \begin{align*}
-     \Var\left[ \langle \varphi(a), \mu_B \rangle \right]
-  &= \E\left[ \langle \varphi(a), \mu_B \rangle^2 \right] - \langle \mu_A, \mu_B \rangle^2
-\\   \Cov\left( \langle \varphi(a), \mu_B \rangle, \langle \varphi(a), \mu_C \rangle \right)
-  &= \E\left[ \langle \varphi(a), \mu_B \rangle \langle \varphi(a), \mu_C \rangle \right]
-   - \langle \mu_A, \mu_B \rangle \langle \mu_A, \mu_C \rangle
+    \Var\left[ \inner{\varphi(A)}{\mu_B} \right]
+  &=
+    \E\left[ \inner{\varphi(A)}{\mu_B}^2 \right]
+  - \inner{\mu_A}{\mu_B}^2
+\\
+    \Cov\left( \inner{\varphi(A)}{\mu_B}, \inner{\varphi(A)}{\mu_C} \right)
+  &=
+    \E\left[ \inner{\varphi(A)}{\mu_B} \inner{\varphi(A)}{\mu_C} \right]
+  - \inner{\mu_A}{\mu_B} \inner{\mu_A}{\mu_C}
 \end{align*}
-so that
+we have
 \begin{align*}
-\zeta_1
-&= \E\left[ \langle \varphi(x), \mu_X \rangle^2 \right] - \langle \mu_X, \mu_X \rangle^2
+    \zeta_1
+&=
+    \E\left[ \inner{\varphi(X)}{\muX}^2 \right] - \inner{\muX}{\muX}^2
 \\&\quad
- + \E\left[ \langle \varphi(y), \mu_Y \rangle^2 \right] - \langle \mu_Y, \mu_Y \rangle^2
+  + \E\left[ \inner{\varphi(Y)}{\muY}^2 \right] - \inner{\muY}{\muY}^2
 \\&\quad
- + \E\left[ \langle \varphi(x), \mu_Y \rangle^2 \right] - \langle \mu_X, \mu_Y \rangle^2
+  + \E\left[ \inner{\varphi(X)}{\muY}^2 \right] - \inner{\muX}{\muY}^2
 \\&\quad
- + \E\left[ \langle \varphi(y), \mu_X \rangle^2 \right] - \langle \mu_Y, \mu_X \rangle^2
+  + \E\left[ \inner{\varphi(Y)}{\muX}^2 \right] - \inner{\muY}{\muX}^2
 \\&\quad
- - 2 \E\left[ \langle \varphi(x), \mu_X \rangle \langle \varphi(x), \mu_Y \rangle \right]
- + 2 \langle \mu_X, \mu_X \rangle \langle \mu_X, \mu_Y \rangle
+  - 2 \E\left[ \inner{\varphi(X)}{\muX} \inner{\varphi(X)}{\muY} \right]
+  + 2 \inner{\muX}{\muX} \inner{\muX}{\muY}
 \\&\quad
- - 2 \E\left[ \langle \varphi(y), \mu_Y \rangle \langle \varphi(y), \mu_X \rangle \right]
- + 2 \langle \mu_Y, \mu_Y \rangle \langle \mu_X, \mu_Y \rangle
-,\end{align*}
-agreeing with (19) of \textcite{three-sample}.
+ - 2 \E\left[ \inner{\varphi(Y)}{\muY} \inner{\varphi(Y)}{\muX} \right]
+ + 2 \inner{\muY}{\muY} \inner{\muX}{\muY}
+.\end{align*}
 
 We can similarly compute the second-order term $\zeta_2$ as:
 \begin{align*}
 \zeta_2
   &= \Var\left[ h(v_1, v_2) \right]
-\\&= \Var\left[ k(x_1, x_2) + k(y_1, y_2) - k(x_1, y_2) - k(x_2, y_1) \right]
-\\&= \Var\left[ k(x_1, x_2) \right]
-   + \Var\left[ k(y_1, y_2) \right]
-   + \Var\left[ k(x_1, y_2) \right]
-   + \Var\left[ k(x_2, y_1) \right]
+\\&= \Var\left[ k(X_1, X_2) + k(Y_1, Y_2) - k(X_1, Y_2) - k(X_2, Y_1) \right]
+\\&=
+    \Var\left[ k(X_1, X_2) \right]
+  + \Var\left[ k(Y_1, Y_2) \right]
+  + \Var\left[ k(X_1, Y_2) \right]
+  + \Var\left[ k(X_2, Y_1) \right]
 \\&\quad
-   - 2 \Cov\left( k(x_1, x_2), k(x_1, y_2) \right)
-   - 2 \Cov\left( k(x_1, x_2), k(x_2, y_1) \right)
+  - 2 \Cov\left( k(X_1, X_2), k(X_1, Y_2) \right)
+  - 2 \Cov\left( k(X_1, X_2), k(X_2, Y_1) \right)
 \\&\quad
-   - 2 \Cov\left( k(y_1, y_2), k(x_1, y_2) \right)
-   - 2 \Cov\left( k(y_1, y_2), k(x_2, y_1) \right)
-\\&= \Var\left[ k(x_1, x_2) \right]
-   + \Var\left[ k(y_1, y_2) \right]
-   + 2 \Var\left[ k(x, y) \right]
+  - 2 \Cov\left( k(Y_1, Y_2), k(X_1, Y_2) \right)
+  - 2 \Cov\left( k(Y_1, Y_2), k(X_2, Y_1) \right)
+\\&=
+    \Var\left[ k(X_1, X_2) \right]
+  + \Var\left[ k(Y_1, Y_2) \right]
+  + 2 \Var\left[ k(X, Y) \right]
 \\&\quad
-   - 4 \Cov\left( k(x_1, x_2), k(x_1, y) \right)
-   - 4 \Cov\left( k(y_1, y_2), k(y_1, x) \right)
-\\&= \E\left[ k(x_1, x_2)^2 \right] - \langle \mu_X, \mu_X \rangle^2
-  \\&\quad
-   + \E\left[ k(y_1, y_2)^2 \right] - \langle \mu_Y, \mu_Y \rangle^2
+  - 4 \Cov\left( k(X_1, X_2), k(X_1, Y) \right)
+  - 4 \Cov\left( k(Y_1, Y_2), k(Y_1, X) \right)
+\\&=
+    \E\left[ k(X_1, X_2)^2 \right] - \inner{\muX}{\muX}^2
 \\&\quad
-   + 2 \E\left[ k(x, y)^2 \right] - 2 \langle \mu_X, \mu_Y \rangle^2
+  + \E\left[ k(Y_1, Y_2)^2 \right] - \inner{\muY}{\muY}^2
 \\&\quad
-   - 4 \E\left[ \langle \varphi(x), \mu_X \rangle \langle \varphi(x), \mu_Y \rangle \right]
-   + 4 \langle \mu_X, \mu_X \rangle \langle \mu_X, \mu_Y \rangle
+  + 2 \E\left[ k(X, Y)^2 \right] - 2 \inner{\muX}{\muY}^2
 \\&\quad
-   - 4 \E\left[ \langle \varphi(y), \mu_Y \rangle \langle \varphi(y), \mu_X \rangle \right]
-   + 4 \langle \mu_Y, \mu_Y \rangle \langle \mu_X, \mu_Y \rangle
+  - 4 \E\left[ \inner{\varphi(X)}{\muX} \inner{\varphi(X)}{\muY} \right]
+  + 4 \inner{\muX}{\muX} \inner{\muX}{\muY}
+\\&\quad
+  - 4 \E\left[ \inner{\varphi(Y)}{\muY} \inner{\varphi(Y)}{\muX} \right]
+  + 4 \inner{\muY}{\muY} \inner{\muX}{\muY}
 .\end{align*}
 
 Combining the two yields
 \begin{align*}
-    \binom{m}{2} \Var[\mmdsqu(X, Y)]
-  &\to 2 (m-2) \zeta_1 + \zeta_2
-\\&= 2 (m-2) \E\left[ \langle \varphi(x), \mu_X \rangle^2 \right]
-   - 2 (m-2) \langle \mu_X, \mu_X \rangle^2
-\\&\quad
- + 2 (m-2) \E\left[ \langle \varphi(y), \mu_Y \rangle^2 \right]
-   - 2 (m-2) \langle \mu_Y, \mu_Y \rangle^2
-\\&\quad
- + 2 (m-2) \E\left[ \langle \varphi(x), \mu_Y \rangle^2 \right]
- - 2 (m-2) \langle \mu_X, \mu_Y \rangle^2
-\\&\quad
- + 2 (m-2) \E\left[ \langle \varphi(y), \mu_X \rangle^2 \right]
- - 2 (m-2) \langle \mu_Y, \mu_X \rangle^2
-\\&\quad
- - 4 (m-2) \E\left[ \langle \varphi(x), \mu_X \rangle \langle \varphi(x), \mu_Y \rangle \right]
- + 4 (m-2) \langle \mu_X, \mu_X \rangle \langle \mu_X, \mu_Y \rangle
-\\&\quad
- - 4 (m-2) \E\left[ \langle \varphi(y), \mu_Y \rangle \langle \varphi(y), \mu_X \rangle \right]
- + 4 (m-2) \langle \mu_Y, \mu_Y \rangle \langle \mu_X, \mu_Y \rangle
-\\&\quad
-   + \E\left[ k(x_1, x_2)^2 \right] - \langle \mu_X, \mu_X \rangle^2
-  \\&\quad
-   + \E\left[ k(y_1, y_2)^2 \right] - \langle \mu_Y, \mu_Y \rangle^2
-\\&\quad
-   + 2 \E\left[ k(x, y)^2 \right] - 2 \langle \mu_X, \mu_Y \rangle^2
-\\&\quad
-   - 4 \E\left[ \langle \varphi(x), \mu_X \rangle \langle \varphi(x), \mu_Y \rangle \right]
-   + 4 \langle \mu_X, \mu_X \rangle \langle \mu_X, \mu_Y \rangle
-\\&\quad
-   - 4 \E\left[ \langle \varphi(y), \mu_Y \rangle \langle \varphi(y), \mu_X \rangle \right]
-   + 4 \langle \mu_Y, \mu_Y \rangle \langle \mu_X, \mu_Y \rangle
-%
-\\&= 2 (m-2) \E\left[ \langle \varphi(x), \mu_X \rangle^2 \right]
-   - (2 m - 3) \langle \mu_X, \mu_X \rangle^2
-\\&\quad
- + 2 (m-2) \E\left[ \langle \varphi(y), \mu_Y \rangle^2 \right]
-   - (2 m - 3) \langle \mu_Y, \mu_Y \rangle^2
-\\&\quad
- + 2 (m-2) \left( \E\left[ \langle \varphi(x), \mu_Y \rangle^2 \right] + \E\left[ \langle \varphi(y), \mu_X \rangle^2 \right] \right)
- - (4 m - 6) \langle \mu_X, \mu_Y \rangle^2
-\\&\quad
- - 4 (m-1) \E\left[ \langle \varphi(x), \mu_X \rangle \langle \varphi(x), \mu_Y \rangle \right]
- + 4 (m-1) \langle \mu_X, \mu_X \rangle \langle \mu_X, \mu_Y \rangle
-\\&\quad
- - 4 (m-1) \E\left[ \langle \varphi(y), \mu_Y \rangle \langle \varphi(y), \mu_X \rangle \right]
- + 4 (m-1) \langle \mu_Y, \mu_Y \rangle \langle \mu_X, \mu_Y \rangle
-\\&\quad
-   + \E\left[ k(x_1, x_2)^2 \right]
-   + \E\left[ k(y_1, y_2)^2 \right]
-   + 2 \E\left[ k(x, y)^2 \right]
-.\end{align*}
+    \Var[\mmdsqu(X, Y)]
+    \to V_m
+  &:= \frac{2}{m (m-1)} \Big[ 2 (m-2) \zeta_1 + \zeta_2 \Big]
+\\&= \frac{2}{m (m-1)} \Bigg[
+    2 (m-2) \E\left[ \inner{\varphi(X)}{\muX}^2 \right]
+  - 2 (m-2) \inner{\muX}{\muX}^2
+\\&\qquad\qquad\qquad
+  + 2 (m-2) \E\left[ \inner{\varphi(Y)}{\muY}^2 \right]
+  - 2 (m-2) \inner{\muY}{\muY}^2
+\\&\qquad\qquad\qquad
+  + 2 (m-2) \E\left[ \inner{\varphi(X)}{\muY}^2 \right]
+  - 2 (m-2) \inner{\muX}{\muY}^2
+\\&\qquad\qquad\qquad
+  + 2 (m-2) \E\left[ \inner{\varphi(Y)}{\muX}^2 \right]
+  - 2 (m-2) \inner{\muY}{\muX}^2
+\\&\qquad\qquad\qquad
+  - 4 (m-2) \E\left[ \inner{\varphi(X)}{\muX} \inner{\varphi(X)}{\muY} \right]
+  + 4 (m-2) \inner{\muX}{\muX} \inner{\muX}{\muY}
+\\&\qquad\qquad\qquad
+  - 4 (m-2) \E\left[ \inner{\varphi(Y)}{\muY} \inner{\varphi(Y)}{\muX} \right]
+  + 4 (m-2) \inner{\muY}{\muY} \inner{\muX}{\muY}
+\\&\qquad\qquad\qquad
+  + \E\left[ k(X_1, X_2)^2 \right] - \inner{\muX}{\muX}^2
+\\&\qquad\qquad\qquad
+  + \E\left[ k(Y_1, Y_2)^2 \right] - \inner{\muY}{\muY}^2
+\\&\qquad\qquad\qquad
+  + 2 \E\left[ k(X, Y)^2 \right] - 2 \inner{\muX}{\muY}^2
+\\&\qquad\qquad\qquad
+  - 4 \E\left[ \inner{\varphi(X)}{\muX} \inner{\varphi(X)}{\muY} \right]
+  + 4 \inner{\muX}{\muX} \inner{\muX}{\muY}
+\\&\qquad\qquad\qquad
+  - 4 \E\left[ \inner{\varphi(Y)}{\muY} \inner{\varphi(Y)}{\muX} \right]
+  + 4 \inner{\muY}{\muY} \inner{\muX}{\muY}
+  \Bigg]
+\end{align*}
+and so
+\begin{equation} \label{eq:final-mmd-exp}
+\begin{aligned}
+    V_m
+  &= \frac{2}{m (m-1)} \Bigg[
+    2 (m-2) \E\left[ \inner{\varphi(X)}{\muX}^2 \right]
+  - (2 m - 3) \inner{\muX}{\muX}^2
+\\&\qquad\qquad\qquad
+  + 2 (m-2) \E\left[ \inner{\varphi(Y)}{\muY}^2 \right]
+  - (2 m - 3) \inner{\muY}{\muY}^2
+\\&\qquad\qquad\qquad
+  + 2 (m-2) \left( \E\left[ \inner{\varphi(X)}{\muY}^2 \right] + \E\left[ \inner{\varphi(Y)}{\muX}^2 \right] \right)
+  - (4 m - 6) \inner{\muX}{\muY}^2
+\\&\qquad\qquad\qquad
+  - 4 (m-1) \E\left[ \inner{\varphi(X)}{\muX} \inner{\varphi(X)}{\muY} \right]
+  + 4 (m-1) \inner{\muX}{\muX} \inner{\muX}{\muY}
+\\&\qquad\qquad\qquad
+  - 4 (m-1) \E\left[ \inner{\varphi(Y)}{\muY} \inner{\varphi(Y)}{\muX} \right]
+  + 4 (m-1) \inner{\muY}{\muY} \inner{\muX}{\muY}
+\\&\qquad\qquad\qquad
+  + \E\left[ k(X_1, X_2)^2 \right]
+  + \E\left[ k(Y_1, Y_2)^2 \right]
+  + 2 \E\left[ k(X, Y)^2 \right]
+  \Bigg]
+.\end{aligned}
+\end{equation}
 
-Then we'll just plug in estimators for each of these terms (described later).
 
+\subsection{Variance of the difference of MMDs} \label{sec:diff-expression}
 
-\section{Difference of MMDs variance}
-
-Let $d := (x, y, z)$, and
+Let $W_i := (X_i, Y_i, Z_i)$, and
 \[
-f(d_1, d_2) := 
-\left( k(y_1, y_2) - k(x_1, y_2) - k(x_2, y_1) \right)
-- \left( k(z_1, z_2) - k(x_1, z_2) - k(x_2, z_1) \right)
+f(W_1, W_2) := 
+\left( k(Y_1, Y_2) - k(X_1, Y_2) - k(X_2, Y_1) \right)
+- \left( k(Z_1, Z_2) - k(X_1, Z_2) - k(X_2, Z_1) \right)
 .\]
-
 Then
 \[
-  \delta := \mathrm{MMD}_u^2(X, Y) - \mathrm{MMD}_u^2(X, Z) = \frac{1}{\binom{m}{2}} \sum_{i < j} f(d_i, d_j),
+  \delta
+  := \mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)
+  = \frac{1}{m (m-1)} \sum_{i \ne j} f(W_i, W_j)
 \]
-and again by the theory of $U$-statistics we have that
-\[
-\Var[\delta] \to \frac{4 (m-2)}{m (m-1)} \xi_1 + \frac{2}{m (m-1)} \xi_2
-,\]
-where
-\[
-\xi_1 := \Var_{d_1}\left[ \E_{d_2}\left[ f(d_1, d_2) \right] \right]
-\qquad
-\xi_2 := \Var_{d_1, d_2}\left[ f(d_1, d_2) \right]
-.\]
+is a $U$-statistic on $\setW$, so again
+\begin{gather*}
+  \Var[\delta]
+  \to \frac{4 (m-2)}{m (m-1)} \xi_1 + \frac{2}{m (m-1)} \xi_2
+\\
+  \xi_1 := \Var_{d_1}\left[ \E_{d_2}\left[ f(d_1, d_2) \right] \right]
+  \qquad
+  \xi_2 := \Var_{d_1, d_2}\left[ f(d_1, d_2) \right]
+.\end{gather*}
 
+We can proceed as before, but with more terms.
 The first-order term $\xi_1$ is
 \begin{align*}
      \xi_1
-  &= \Var_{d_1}\left[ \E_{d_2}\left[ f(d_1, d_2 )\right] \right]
-\\&= \Var_{x, y, z}\left[
-          \langle \varphi(y), \mu_Y \rangle
-        - \langle \varphi(x), \mu_Y \rangle
-        - \langle \mu_X, \varphi(y) \rangle
-        - \langle \varphi(z), \mu_Z \rangle
-        + \langle \varphi(x), \mu_Z \rangle
-        + \langle \mu_X, \varphi(z) \rangle
-     \right]
-\\&= \Var_{x, y, z}\left[
-          \langle \varphi(x), \mu_Z - \mu_Y \rangle
-        + \langle \varphi(y), \mu_Y - \mu_X \rangle
-        + \langle \varphi(z), \mu_X - \mu_Z \rangle
-     \right]
-\\&= \Var_{x}\left[ \langle \varphi(x), \mu_Z - \mu_Y \rangle \right]
-   + \Var_{y}\left[ \langle \varphi(y), \mu_Y - \mu_X \rangle \right]
-   + \Var_{z}\left[ \langle \varphi(z), \mu_X - \mu_Z \rangle \right]
-\\&= \Var_{x}\left[ \langle \varphi(x), \mu_Z - \mu_Y \rangle \right]
-   + \Var_{y}\left[ \langle \varphi(y), \mu_Y - \mu_X \rangle \right]
-   + \Var_{z}\left[ \langle \varphi(z), \mu_X - \mu_Z \rangle \right]
-\\&= \Var_{x}\left[ \langle \varphi(x), \mu_Z  \rangle \right]
-   + \Var_{x}\left[ \langle \varphi(x), \mu_Y \rangle \right]
-   - 2 \Cov_x\left( \langle \varphi(x), \mu_Z \rangle, \langle \varphi(x), \mu_Y \rangle \right)
-\\&\qquad
-   + \Var_{y}\left[ \langle \varphi(y), \mu_Y  \rangle \right]
-   + \Var_{y}\left[ \langle \varphi(y), \mu_X \rangle \right]
-   - 2 \Cov_y\left( \langle \varphi(y), \mu_Y \rangle, \langle \varphi(y), \mu_X \rangle \right)
-\\&\qquad
-   + \Var_{z}\left[ \langle \varphi(z), \mu_X  \rangle \right]
-   + \Var_{z}\left[ \langle \varphi(z), \mu_Z \rangle \right]
-   - 2 \Cov_z\left( \langle \varphi(z), \mu_X \rangle, \langle \varphi(z), \mu_Z \rangle \right)
-% %
-% \\&= \E_{x}\left[ \langle \varphi(x), \mu_Z \rangle^2 \right]
-%    - \langle \mu_X, \mu_Z \rangle^2
-% \\&\qquad
-%    + \E_{x}\left[ \langle \varphi(x), \mu_Y \rangle^2 \right]
-%    - \langle \mu_X, \mu_Y \rangle^2
-% \\&\qquad
-%    - 2 \E_x\left[ \langle \varphi(x), \mu_Z \rangle \langle \varphi(x), \mu_Y \rangle \right]
-%    + 2 \langle \mu_X, \mu_Z \rangle \langle \mu_X, \mu_Y \rangle
-% \\&\qquad
-%    + \E_{y}\left[ \langle \varphi(y), \mu_Y  \rangle^2 \right]
-%    - \langle \mu_Y, \mu_Y \rangle^2
-% \\&\qquad
-%    + \E_{y}\left[ \langle \varphi(y), \mu_X \rangle^2 \right]
-%    - \langle \mu_Y, \mu_X \rangle^2
-% \\&\qquad
-%    - 2 \E_y\left[ \langle \varphi(y), \mu_Y \rangle \langle \varphi(y), \mu_X \rangle \right]
-%    + 2 \langle \mu_Y, \mu_Y \rangle \langle \mu_Y, \mu_X \rangle
-% \\&\qquad
-%    + \E_{z}\left[ \langle \varphi(z), \mu_X \rangle^2 \right]
-%    - \langle \mu_Z, \mu_X \rangle^2
-% \\&\qquad
-%    + \E_{z}\left[ \langle \varphi(z), \mu_Z \rangle^2 \right]
-%    - \langle \mu_Z, \mu_Z \rangle^2
-% \\&\qquad
-%    - 2 \E_z\left[ \langle \varphi(z), \mu_X \rangle \langle \varphi(z), \mu_Z \rangle \right]
-%    + 2 \langle \mu_Z, \mu_X \rangle \langle \mu_Z, \mu_Z \rangle
-%
+  &= \Var_{W_1}\left[ \E_{W_2}\left[ f(W_1, W_2 )\right] \right]
 \\&=
-     \E_{x}\left[ \langle \varphi(x), \mu_Y \rangle^2 \right]
-   - \langle \mu_X, \mu_Y \rangle^2
+  \Var_{X, Y, Z}\left[
+    \inner{\varphi(Y)}{\muY}
+  - \inner{\varphi(X)}{\muY}
+  - \inner{\muX}{\varphi(Y)}
+  - \inner{\varphi(Z)}{\muZ}
+  + \inner{\varphi(X)}{\muZ}
+  + \inner{\muX}{\varphi(Z)}
+  \right]
+\\&=
+    \Var\left[ \inner{\varphi(X)}{\muY} \right]
+  + \Var\left[ \inner{\varphi(X)}{\muZ} \right]
+  + \Var\left[ \inner{\varphi(Y)}{\muX} \right]
+  + \Var\left[ \inner{\varphi(Y)}{\muY} \right]
+  + \Var\left[ \inner{\varphi(Z)}{\muX} \right]
+  + \Var\left[ \inner{\varphi(Z)}{\muZ} \right]
 \\&\qquad
-   + \E_{x}\left[ \langle \varphi(x), \mu_Z \rangle^2 \right]
-   - \langle \mu_X, \mu_Z \rangle^2
+  - 2 \Cov\left( \inner{\varphi(X)}{\muY}, \inner{\varphi(X)}{\muZ} \right)
+  - 2 \Cov\left( \inner{\varphi(Y)}{\muX}, \inner{\varphi(Y)}{\muY} \right)
+  - 2 \Cov\left( \inner{\varphi(Z)}{\muX}, \inner{\varphi(Z)}{\muZ} \right)
+\\&=
+    \E\left[ \inner{\varphi(X)}{\muY}^2 \right]
+  - \inner{\muX}{\muY}^2
 \\&\qquad
-   + \E_{y}\left[ \langle \varphi(y), \mu_X \rangle^2 \right]
-   - \langle \mu_Y, \mu_X \rangle^2
+  + \E\left[ \inner{\varphi(X)}{\muZ}^2 \right]
+  - \inner{\muX}{\muZ}^2
 \\&\qquad
-   + \E_{y}\left[ \langle \varphi(y), \mu_Y  \rangle^2 \right]
-   - \langle \mu_Y, \mu_Y \rangle^2
+  + \E\left[ \inner{\varphi(Y)}{\muX}^2 \right]
+  - \inner{\muY}{\muX}^2
 \\&\qquad
-   + \E_{z}\left[ \langle \varphi(z), \mu_X \rangle^2 \right]
-   - \langle \mu_Z, \mu_X \rangle^2
+  + \E\left[ \inner{\varphi(Y)}{\muY}^2 \right]
+  - \inner{\muY}{\muY}^2
 \\&\qquad
-   + \E_{z}\left[ \langle \varphi(z), \mu_Z \rangle^2 \right]
-   - \langle \mu_Z, \mu_Z \rangle^2
+  + \E\left[ \inner{\varphi(Z)}{\muX}^2 \right]
+  - \inner{\muZ}{\muX}^2
 \\&\qquad
-   - 2 \E_x\left[ \langle \varphi(x), \mu_Y \rangle \langle \varphi(x), \mu_Z \rangle \right]
-   + 2 \langle \mu_X, \mu_Y \rangle \langle \mu_X, \mu_Z \rangle
+  + \E\left[ \inner{\varphi(Z)}{\muZ}^2 \right]
+  - \inner{\muZ}{\muZ}^2
 \\&\qquad
-   - 2 \E_y\left[ \langle \varphi(y), \mu_X \rangle \langle \varphi(y), \mu_Y \rangle \right]
-   + 2 \langle \mu_X, \mu_Y \rangle \langle \mu_Y, \mu_Y \rangle
+  - 2 \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
+  + 2 \inner{\muX}{\muY} \inner{\muX}{\muZ}
 \\&\qquad
-   - 2 \E_z\left[ \langle \varphi(z), \mu_X \rangle \langle \varphi(z), \mu_Z \rangle \right]
-   + 2 \langle \mu_X, \mu_Z \rangle \langle \mu_Z, \mu_Z \rangle
+  - 2 \E\left[ \inner{\varphi(Y)}{\muX} \inner{\varphi(Y)}{\muY} \right]
+  + 2 \inner{\muX}{\muY} \inner{\muY}{\muY}
+\\&\qquad
+  - 2 \E\left[ \inner{\varphi(Z)}{\muX} \inner{\varphi(Z)}{\muZ} \right]
+  + 2 \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
 .\end{align*}
 
 The second-order term $\xi_2$ is
 \begin{align*}
-     \xi_2
+    \xi_2
   &=
-     \Var\left[ - k(x_1, y_2) - k(x_2, y_1) + k(x_1, z_2) + k(x_2, z_1) + k(y_1, y_2) - k(z_1, z_2) \right]
+    \Var\left[ - k(X_1, Y_2) - k(X_2, Y_1) + k(X_1, Z_2) + k(X_2, Z_1) + k(Y_1, Y_2) - k(Z_1, Z_2) \right]
 \\&=
-     \Var\left[ k(x_1, y_2) \right]
-   + \Var\left[ k(x_2, y_1) \right]
-   + \Var\left[ k(x_1, z_2) \right]
-   + \Var\left[ k(x_2, z_1) \right]
-   + \Var\left[ k(y_1, y_2) \right]
-   + \Var\left[ k(z_1, z_2) \right]
+    \Var\left[ k(X_1, Y_2) \right]
+  + \Var\left[ k(X_2, Y_1) \right]
+  + \Var\left[ k(X_1, Z_2) \right]
+  + \Var\left[ k(X_2, Z_1) \right]
+  + \Var\left[ k(Y_1, Y_2) \right]
+  + \Var\left[ k(Z_1, Z_2) \right]
 \\&\qquad
-   - 2 \Cov\left( k(x_1, y_2), k(x_1, z_2) \right)
-   - 2 \Cov\left( k(x_1, y_2), k(y_1, y_2) \right)
+  - 2 \Cov\left( k(X_1, Y_2), k(X_1, Z_2) \right)
+  - 2 \Cov\left( k(X_1, Y_2), k(Y_1, Y_2) \right)
 \\&\qquad
-   - 2 \Cov\left( k(x_2, y_1), k(x_2, z_1) \right)
-   - 2 \Cov\left( k(x_2, y_1), k(y_1, y_2) \right)
+  - 2 \Cov\left( k(X_2, Y_1), k(X_2, Z_1) \right)
+  - 2 \Cov\left( k(X_2, Y_1), k(Y_1, Y_2) \right)
 \\&\qquad
-   - 2 \Cov\left( k(x_1, z_2), k(z_1, z_2) \right)
-   - 2 \Cov\left( k(x_2, z_1), k(z_1, z_2) \right)
+  - 2 \Cov\left( k(X_1, Z_2), k(Z_1, Z_2) \right)
+  - 2 \Cov\left( k(X_2, Z_1), k(Z_1, Z_2) \right)
 %
 \\&=
-     2 \Var\left[ k(x, y) \right]
-   + 2 \Var\left[ k(x, z) \right]
-   + \Var\left[ k(y_1, y_2) \right]
-   + \Var\left[ k(z_1, z_2) \right]
+    2 \Var\left[ k(X, Y) \right]
+  + 2 \Var\left[ k(X, Z) \right]
+  + \Var\left[ k(Y_1, Y_2) \right]
+  + \Var\left[ k(Z_1, Z_2) \right]
 \\&\qquad
-   - 4 \Cov\left( k(x, y), k(x, z) \right)
-   - 4 \Cov\left( k(x, y_1), k(y_1, y_2) \right)
-   - 4 \Cov\left( k(x, z_1), k(z_1, z_2) \right)
+  - 4 \Cov\left( k(X, Y), k(X, Z) \right)
+  - 4 \Cov\left( k(X, Y_1), k(Y_1, Y_2) \right)
+  - 4 \Cov\left( k(X, Z_1), k(Z_1, Z_2) \right)
 %
 \\&=
-     2 \E\left[ k(x, y)^2 \right]
-   - 2 \langle \mu_X, \mu_Y \rangle^2
+    2 \E\left[ k(X, Y)^2 \right]
+  - 2 \inner{\muX}{\muY}^2
 \\&\qquad
-   + 2 \E\left[ k(x, y)^2 \right]
-   - 2 \langle \mu_X, \mu_Z \rangle^2
+  + 2 \E\left[ k(X, Z)^2 \right]
+  - 2 \inner{\muX}{\muZ}^2
 \\&\qquad
-   + \E\left[ k(y_1, y_2)^2 \right]
-   - \langle \mu_Y, \mu_Y \rangle^2
+  + \E\left[ k(Y_1, Y_2)^2 \right]
+  - \inner{\muY}{\muY}^2
 \\&\qquad
-   + \E\left[ k(z_1, z_2)^2 \right]
-   - \langle \mu_Z, \mu_Z \rangle^2
+  + \E\left[ k(Z_1, Z_2)^2 \right]
+  - \inner{\muZ}{\muZ}^2
 \\&\qquad
-   - 4 \E\left[ \langle \varphi(x), \varphi(y) \rangle \langle \varphi(x), \varphi(z) \rangle \right]
-   + 4 \langle \mu_X, \mu_Y \rangle \langle \mu_X, \mu_Z \rangle
+  - 4 \E\left[ k(X, Y) k(X, Z) \right]
+  + 4 \inner{\muX}{\muY} \inner{\muX}{\muZ}
 \\&\qquad
-   - 4 \E\left[ \langle \varphi(x), \varphi(y_1) \rangle \langle \varphi(x), \varphi(y_2) \rangle \right]
-   + 4 \langle \mu_X, \mu_Y \rangle \langle \mu_Y, \mu_Y \rangle
+  - 4 \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
+  + 4 \inner{\muX}{\muY} \inner{\muY}{\muY}
 \\&\qquad
-   - 4 \E\left[ \langle \varphi(x), \varphi(z_1) \rangle \langle \varphi(x), \varphi(z_2) \rangle \right]
-   + 4 \langle \mu_X, \mu_Z \rangle \langle \mu_Z, \mu_Z \rangle
+  - 4 \E\left[ k(X, Z_1) k(Z_1, Z_2) \right]
+  + 4 \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
 .\end{align*}
 
 Combining the two,
 \begin{align*}
-    \binom{m}{2} \Var[\delta]
-  &\to 2 (m-2) \xi_1 + \xi_2
-\\&=
-     2(m-2) \E_{x}\left[ \langle \varphi(x), \mu_Y \rangle^2 \right]
-   - 2(m-2) \langle \mu_X, \mu_Y \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{x}\left[ \langle \varphi(x), \mu_Z \rangle^2 \right]
-   - 2(m-2) \langle \mu_X, \mu_Z \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{y}\left[ \langle \varphi(y), \mu_X \rangle^2 \right]
-   - 2(m-2) \langle \mu_Y, \mu_X \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{y}\left[ \langle \varphi(y), \mu_Y  \rangle^2 \right]
-   - 2(m-2) \langle \mu_Y, \mu_Y \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{z}\left[ \langle \varphi(z), \mu_X \rangle^2 \right]
-   - 2(m-2) \langle \mu_Z, \mu_X \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{z}\left[ \langle \varphi(z), \mu_Z \rangle^2 \right]
-   - 2(m-2) \langle \mu_Z, \mu_Z \rangle^2
-\\&\qquad
-   - 4(m-2) \E_x\left[ \langle \varphi(x), \mu_Y \rangle \langle \varphi(x), \mu_Z \rangle \right]
-   + 4(m-2) \langle \mu_X, \mu_Y \rangle \langle \mu_X, \mu_Z \rangle
-\\&\qquad
-   - 4(m-2) \E_y\left[ \langle \varphi(y), \mu_X \rangle \langle \varphi(y), \mu_Y \rangle \right]
-   + 4(m-2) \langle \mu_X, \mu_Y \rangle \langle \mu_Y, \mu_Y \rangle
-\\&\qquad
-   - 4(m-2) \E_z\left[ \langle \varphi(z), \mu_X \rangle \langle \varphi(z), \mu_Z \rangle \right]
-   + 4(m-2) \langle \mu_X, \mu_Z \rangle \langle \mu_Z, \mu_Z \rangle
-\\&\qquad
-   + 2 \E\left[ k(x, y)^2 \right]
-   - 2 \langle \mu_X, \mu_Y \rangle^2
-\\&\qquad
-   + 2 \E\left[ k(x, z)^2 \right]
-   - 2 \langle \mu_X, \mu_Z \rangle^2
-\\&\qquad
-   + \E\left[ k(y_1, y_2)^2 \right]
-   - \langle \mu_Y, \mu_Y \rangle^2
-\\&\qquad
-   + \E\left[ k(z_1, z_2)^2 \right]
-   - \langle \mu_Z, \mu_Z \rangle^2
-\\&\qquad
-   - 4 \E\left[ k(x, y) k(x, z) \right]
-   + 4 \langle \mu_X, \mu_Y \rangle \langle \mu_X, \mu_Z \rangle
-\\&\qquad
-   - 4 \E\left[ k(x, y_1) k(x, y_2) \right]
-   + 4 \langle \mu_X, \mu_Y \rangle \langle \mu_Y, \mu_Y \rangle
-\\&\qquad
-   - 4 \E\left[ k(x, z_1) k(x, z_2) \right]
-   + 4 \langle \mu_X, \mu_Z \rangle \langle \mu_Z, \mu_Z \rangle
-%
-\\&=
-     2(m-2) \E_{x}\left[ \langle \varphi(x), \mu_Y \rangle^2 \right]
-   - (2m-3) \langle \mu_X, \mu_Y \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{x}\left[ \langle \varphi(x), \mu_Z \rangle^2 \right]
-   - (2m-3) \langle \mu_X, \mu_Z \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{y}\left[ \langle \varphi(y), \mu_X \rangle^2 \right]
-   - 2(m-2) \langle \mu_Y, \mu_X \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{y}\left[ \langle \varphi(y), \mu_Y  \rangle^2 \right]
-   - (2m-3) \langle \mu_Y, \mu_Y \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{z}\left[ \langle \varphi(z), \mu_X \rangle^2 \right]
-   - 2(m-2) \langle \mu_Z, \mu_X \rangle^2
-\\&\qquad
-   + 2(m-2) \E_{z}\left[ \langle \varphi(z), \mu_Z \rangle^2 \right]
-   - (2m-3) \langle \mu_Z, \mu_Z \rangle^2
-\\&\qquad
-   - 4(m-2) \E_x\left[ \langle \varphi(x), \mu_Y \rangle \langle \varphi(x), \mu_Z \rangle \right]
-   + 4(m-1) \langle \mu_X, \mu_Y \rangle \langle \mu_X, \mu_Z \rangle
-\\&\qquad
-   - 4(m-2) \E_y\left[ \langle \varphi(y), \mu_X \rangle \langle \varphi(y), \mu_Y \rangle \right]
-   + 4(m-1) \langle \mu_X, \mu_Y \rangle \langle \mu_Y, \mu_Y \rangle
-\\&\qquad
-   - 4(m-2) \E_z\left[ \langle \varphi(z), \mu_X \rangle \langle \varphi(z), \mu_Z \rangle \right]
-   + 4(m-1) \langle \mu_X, \mu_Z \rangle \langle \mu_Z, \mu_Z \rangle
-\\&\qquad
-   + 2 \E\left[ k(x, y)^2 \right]
-   + 2 \E\left[ k(x, z)^2 \right]
-   + \E\left[ k(y_1, y_2)^2 \right]
-   + \E\left[ k(z_1, z_2)^2 \right]
-\\&\qquad
-   - 4 \E\left[ k(x, y) k(x, z) \right]
-   - 4 \E\left[ k(x, y_1) k(x, y_2) \right]
-   - 4 \E\left[ k(x, z_1) k(x, z_2) \right]
-.\end{align*}
+    \Var[\delta]
+    \to \nu_m
+  &:= \frac{2}{m (m-1)} \Big[ 2 (m-2) \xi_1 + \xi_2 \Big]
+\\&= \frac{2}{m (m-1)} \Bigg[
+    2(m-2) \E\left[ \inner{\varphi(X)}{\muY}^2 \right]
+  - 2(m-2) \inner{\muX}{\muY}^2
+\\&\qquad\qquad\qquad
+  + 2(m-2) \E\left[ \inner{\varphi(X)}{\muZ}^2 \right]
+  - 2(m-2) \inner{\muX}{\muZ}^2
+\\&\qquad\qquad\qquad
+  + 2(m-2) \E\left[ \inner{\varphi(Y)}{\muX}^2 \right]
+  - 2(m-2) \inner{\muY}{\muX}^2
+\\&\qquad\qquad\qquad
+  + 2(m-2) \E\left[ \inner{\varphi(Y)}{\muY}^2 \right]
+  - 2(m-2) \inner{\muY}{\muY}^2
+\\&\qquad\qquad\qquad
+  + 2(m-2) \E\left[ \inner{\varphi(Z)}{\muX}^2 \right]
+  - 2(m-2) \inner{\muZ}{\muX}^2
+\\&\qquad\qquad\qquad
+  + 2(m-2) \E\left[ \inner{\varphi(Z)}{\muZ}^2 \right]
+  - 2(m-2) \inner{\muZ}{\muZ}^2
+\\&\qquad\qquad\qquad
+  - 4(m-2) \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
+  + 4(m-2) \inner{\muX}{\muY} \inner{\muX}{\muZ}
+\\&\qquad\qquad\qquad
+  - 4(m-2) \E\left[ \inner{\varphi(Y)}{\muX} \inner{\varphi(Y)}{\muY} \right]
+  + 4(m-2) \inner{\muX}{\muY} \inner{\muY}{\muY}
+\\&\qquad\qquad\qquad
+  - 4(m-2) \E\left[ \inner{\varphi(Z)}{\muX} \inner{\varphi(Z)}{\muZ} \right]
+  + 4(m-2) \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
+\\&\qquad\qquad\qquad
+  + 2 \E\left[ k(X, Y)^2 \right]
+  - 2 \inner{\muX}{\muY}^2
+\\&\qquad\qquad\qquad
+  + 2 \E\left[ k(X, Z)^2 \right]
+  - 2 \inner{\muX}{\muZ}^2
+\\&\qquad\qquad\qquad
+  + \E\left[ k(Y_1, Y_2)^2 \right]
+  - \inner{\muY}{\muY}^2
+\\&\qquad\qquad\qquad
+  + \E\left[ k(Z_1, Z_2)^2 \right]
+  - \inner{\muZ}{\muZ}^2
+\\&\qquad\qquad\qquad
+  - 4 \E\left[ k(X, Y) k(X, Z) \right]
+  + 4 \inner{\muX}{\muY} \inner{\muX}{\muZ}
+\\&\qquad\qquad\qquad
+  - 4 \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
+  + 4 \inner{\muX}{\muY} \inner{\muY}{\muY}
+\\&\qquad\qquad\qquad
+  - 4 \E\left[ k(X, Z_1) k(Z_1, Z_2) \right]
+  + 4 \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
+  \Bigg]
+\end{align*}
+so that
+\begin{equation} \label{eq:final-diff-exp}
+\begin{aligned}
+    \nu_m
+  &= \frac{2}{m (m-1)} \Bigg[
+    2(m-2) \left[
+      \E\left[ \inner{\varphi(X)}{\muY}^2 \right]
+    + \E\left[ \inner{\varphi(X)}{\muZ}^2 \right]
+    + \E\left[ \inner{\varphi(Y)}{\muX}^2 \right]
+    + \E\left[ \inner{\varphi(Z)}{\muX}^2 \right]
+    \right]
+\\&\qquad\qquad\qquad
+  + 2(m-2) \left[
+      \E\left[ \inner{\varphi(Y)}{\muY}^2 \right]
+    + \E\left[ \inner{\varphi(Z)}{\muZ}^2 \right]
+    \right]
+\\&\qquad\qquad\qquad
+  - 2(2m-3) \left[
+      \inner{\muX}{\muY}^2
+    + \inner{\muX}{\muZ}^2
+    \right]
+  - (2m-3) \left[
+      \inner{\muY}{\muY}^2
+    + \inner{\muZ}{\muZ}^2
+    \right]
+\\&\qquad\qquad\qquad
+  + 4(m-1) \left[
+      \inner{\muX}{\muY} \inner{\muX}{\muZ}
+    + \inner{\muX}{\muY} \inner{\muY}{\muY}
+    + \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
+  \right]
+\\&\qquad\qquad\qquad
+  - 4(m-2) \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
+\\&\qquad\qquad\qquad
+  - 4(m-2) \E\left[ \inner{\varphi(Y)}{\muX} \inner{\varphi(Y)}{\muY} \right]
+\\&\qquad\qquad\qquad
+  - 4(m-2) \E\left[ \inner{\varphi(Z)}{\muX} \inner{\varphi(Z)}{\muZ} \right]
+\\&\qquad\qquad\qquad
+  + 2 \E\left[ k(X, Y)^2 \right]
+  + 2 \E\left[ k(X, Z)^2 \right]
+  + \E\left[ k(Y_1, Y_2)^2 \right]
+  + \E\left[ k(Z_1, Z_2)^2 \right]
+\\&\qquad\qquad\qquad
+  - 4 \E\left[ k(X, Y) k(X, Z) \right]
+  - 4 \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
+  - 4 \E\left[ k(X, Z_1) k(Z_1, Z_2) \right]
+  \Bigg]
+.\end{aligned}
+\end{equation}
 
 
 \section{Estimators of terms}
 
-\paragraph{Estimators}
-\begingroup
-\newcommand{\Kxy}{K_{XY}}
-\newcommand{\Kxx}{K_{XX}}
-\newcommand{\Kyy}{K_{YY}}
-\newcommand{\Ktxx}{\tilde K_{XX}}
-\newcommand{\Ktyy}{\tilde K_{YY}}
+\subsection{Sub-expressions} \label{sec:sub-estimators}
+We now give unbiased estimators of the various terms in the variance results of \cref{sec:var-expressions}.
 
-The various terms required can be estimated with finite samples as follows.
-Define a matrix $\Kxx$ by $(\Kxx)_{ij} = k(X_i, X_j)$,
-$\Kyy$ by $(\Kyy)_{ij} = k(Y_i, Y_j)$,
-and $\Kxy$ by $(\Kxy)_{ij} = k(X_i, Y_j)$.
-Let $\Ktxx$ and $\Ktyy$ be $\Kxx$ and $\Kyy$ with their diagonals set to zero.
-Let $e$ be the $m$-vector of all ones.
-The $X$-to-$Z$ terms for the difference of MMDs of course take the same form as the $X$-to-$Y$ terms.
+Define an $m \times m$ matrix $\Kxy$ by $(\Kxy)_{ij} = k(X_i, Y_j)$,
+and $\Kxz$, $\Kxx$, $\Kyy$, $\Kzz$ similarly.
+Let $\Ktxx$, $\Ktyy$, $\Ktzz$ be $\Kxx$, $\Kyy$, $\Kzz$ with their diagonals set to zero.
+Let $\one$ be the $m$-vector of all ones.
+We'll also use the falling factorial notation
+$(m)_k := m (m-1) \cdots (m - k + 1)$.
+
+For unbiased estimators, the important thing is to subtract off elements of sums which share data points. For example,
 
 \begin{align*}
-\langle \mu_X, \mu_Y \rangle
-&\approx \frac{1}{m^2} \sum_{i,j} k(x_i, y_j)
-   = \frac{1}{m^2} e\tp \Kxy e
+\inner{\muX}{\muY}
+&\approx \frac{1}{m^2} \sum_{i,j} k(X_i, Y_j)
+   = \frac{1}{m^2} \one\tp \Kxy \one
 \\
-\langle \mu_X, \mu_X \rangle
-&\approx \frac{1}{m (m-1)} \sum_{i \ne j} k(x_i, x_j)
-   = \frac{1}{m (m-1)} e\tp \Ktxx e
-\\
-\E\left[ \langle \varphi(y), \mu_Y \rangle^2 \right]
-&\approx \frac1m \sum_i \langle \varphi(y_i), \mu_Y \rangle^2
-\\&\approx \frac1m \sum_i \frac{1}{m-1} \sum_{j\ne i} \frac{1}{m-2} \sum_{\ell \notin \{i,j\}} \langle \varphi(y_i), \varphi(y_j) \rangle \langle \varphi(y_i), \varphi(y_\ell) \rangle
-\\&= \frac{1}{m(m-1)(m-2)} \sum_i \left( \sum_{j, \ell \ne i} k(y_i, y_j) k(y_i, y_\ell) - \sum_{j \ne i} k(y_i, y_j)^2 \right)
-\\&= \frac{1}{m(m-1)(m-2)} \sum_i \left( \sum_{j, \ell \ne i} (\Kyy)_{i,j} (\Kyy)_{i,\ell} - \sum_{j \ne i} (\Kyy)_{i,j}^2 \right)
-\\&= \frac{1}{m(m-1)(m-2)} \sum_i \left( \sum_{j, \ell} (\Ktyy)_{i,j} (\Ktyy)_{i,\ell} - \sum_{j} (\Ktyy)_{i,j}^2 \right)
-\\&= \frac{1}{m(m-1)(m-2)} \left( \sum_{j, \ell} (\Ktyy \Ktyy)_{j\ell} - \sum_{i,j} (\Ktyy)_{i,j}^2 \right)
-\\&= \frac{1}{m(m-1)(m-2)} \left( \lVert \Ktyy e \rVert^2 - \lVert \Ktyy \rVert_F^2 \right)
-\\
-\E\left[ \langle \varphi(x), \mu_Y \rangle^2 \right]
-&\approx \frac1m \sum_i \langle \varphi(x_i), \mu_Y \rangle^2
-\\&\approx \frac1m \sum_i \frac{1}{m} \sum_{j} \frac{1}{m-1} \sum_{\ell \ne j} \langle \varphi(x_i), \varphi(y_j) \rangle \langle \varphi(x_i), \varphi(y_\ell) \rangle
-\\&= \frac{1}{m^2(m-1)} \sum_i \left( \sum_{j, \ell} k(x_i, y_j) k(x_i, y_\ell) - \sum_{j} k(x_i, y_j)^2 \right)
-\\&= \frac{1}{m^2(m-1)} \left( \lVert \Kxy e \rVert^2 - \lVert \Kxy \rVert_F^2 \right)
-\\
-\E\left[ \langle \varphi(y), \mu_Y \rangle \langle \varphi(y), \mu_X \rangle \right]
-&\approx \frac1m \sum_i \left\langle \varphi(y_i), \frac{1}{m-1} \sum_{j \ne i} \varphi(y_j) \right\rangle \left\langle \varphi(y_i), \frac{1}{m} \sum_\ell \varphi(x_\ell) \right\rangle
-\\&= \frac{1}{m^2 (m-1)} \sum_i \sum_{j \ne i} \sum_{\ell} k(y_i, y_j) k(y_i, x_\ell)
-\\&= \frac{1}{m^2 (m-1)} \sum_i \sum_{j} \sum_{\ell} (\Ktyy)_{i,j} (\Kxy)_{\ell,i}
-\\&= \frac{1}{m^2 (m-1)} e\tp \Ktyy \Kxy\tp e
-\\
-\E[ k(x_1, x_2)^2 ]
-  &\approx \frac{1}{m (m-1)} \sum_{i \ne j} k(x_i, x_j)^2
-  = \frac{1}{m (m-1)} \lVert \Ktxx \rVert_F^2
-\\
-\E[ k(x, y)^2 ] &\approx \frac{1}{m^2} \lVert \Kxy \rVert_F^2
-\\
-\E\left[ \langle \varphi(x), \mu_Y \rangle \langle \varphi(x), \mu_Z \rangle \right]
-  &\approx \frac1m \sum_i \left\langle \phi(x_i), \frac1m \sum_j \phi(y_j) \right\rangle \left\langle \phi(x_i), \frac1m \sum_\ell \phi(z_\ell) \right\rangle
-\\&= \frac{1}{m^3} \sum_{i,j,\ell} k(x_i, y_j) k(x_i, z_\ell)
-\\&= \frac{1}{m^3} e\tp K_{XY}\tp K_{XZ} e
+\inner{\muX}{\muX}
+&\approx \frac{1}{m (m-1)} \sum_{i \ne j} k(X_i, X_j)
+   = \frac{1}{m (m-1)} \one\tp \Ktxx \one
 .\end{align*}
-\endgroup
+It is also important to do so for products of these terms:
+this is the bias present in the publication version of \textcite{opt-mmd}.
+That is:
+\begin{align*}
+     \inner{\muX}{\muY}^2
+  &= \inner{\muX}{\muY} \inner{\muX}{\muY}
+   = \E_{X, X', Y, Y'}\left[ k(X, Y) k(X', Y') \right]
+\\&\approx
+    \frac{1}{m^2} \sum_{i,j} k(X_i, Y_j)
+      \frac{1}{(m-1)^2} \sum_{i' \ne i} \sum_{j' \ne j} k(X_{i'}, Y_{j'})
+\\&=
+    \frac{1}{m^2 (m-1)^2} \sum_{i,j} k(X_i, Y_j) \left[
+      \sum_{i',j'} k(X_{i'}, Y_{j'})
+    - \sum_{i'} k(X_{i'}, Y_j)
+    - \sum_{j'} k(X_i, Y_{j'})
+    + k(X_i, Y_j)
+    \right]
+\\&= \frac{1}{m^2 (m-1)^2} \left[
+      \sum_{i,j,i',j'} (\Kxy)_{ij} (\Kxy)_{i'j'}
+    - \sum_{i,j,i'} (\Kxy)_{ij} (\Kxy)_{i'j}
+    - \sum_{i,j,j'} (\Kxy)_{ij} (\Kxy)_{ij'}
+    + \sum_{i,j} (\Kxy)_{ij}^2
+    \right]
+\\&= \frac{1}{m^2 (m-1)^2} \left[
+      \left( \one\tp \Kxy \one \right)^2
+    - \one\tp \Kxy \Kxy\tp \one
+    - \one\tp \Kxy\tp \Kxy \one
+    + \norm{\Kxy}_F^2
+    \right]
+\\&= \frac{1}{m^2 (m-1)^2} \left[
+      \left( \one\tp \Kxy \one \right)^2
+    - \norm{\Kxy\tp \one}^2
+    - \norm{\Kxy \one}^2
+    + \norm{\Kxy}_F^2
+    \right]
+.\end{align*}
+Similarly,
+\begin{align*}
+     \inner{\muX}{\muX}^2
+  &= \E_{X_1, X_2, X_3, X_4}\left[ k(X_1, X_2) k(X_3, X_4) \right]
+\\&\approx
+    \frac{1}{(m)_4} \sum_{i} \sum_{j \ne i} k(X_i, X_j) \sum_{a \notin \{i, j\}} \sum_{b \notin \{i, j, a\}} k(X_a, X_b)
+\\&=
+    \frac{1}{(m)_4} \sum_{ij} (\Ktxx)_{ij} \sum_{a, b \notin \{i, j\}} (\Ktxx)_{ab}
+\\&=
+    \frac{1}{(m)_4} \sum_{ij} (\Ktxx)_{ij} \Bigg[
+      \sum_{a b} (\Ktxx)_{ab}
+    - \sum_a (\Ktxx)_{ai}
+    - \sum_a (\Ktxx)_{aj}
+    - \sum_b (\Ktxx)_{ib}
+    - \sum_b (\Ktxx)_{jb}
+\\&\qquad\qquad\qquad\qquad\qquad
+    + (\Ktxx)_{ii}
+    + (\Ktxx)_{ij}
+    + (\Ktxx)_{ji}
+    + (\Ktxx)_{jj}
+    \Bigg]
+\\&=
+    \frac{1}{(m)_4} \sum_{ij} (\Ktxx)_{ij} \Bigg[
+      \sum_{a b} (\Ktxx)_{ab}
+    - 2 \sum_a (\Ktxx)_{ai}
+    - 2 \sum_a (\Ktxx)_{aj}
+    + 2 (\Ktxx)_{ij}
+    \Bigg]
+\\&=
+    \frac{1}{(m)_4} \Bigg[
+      \sum_{i j a b} (\Ktxx)_{ij} (\Ktxx)_{ab}
+    - 2 \sum_{i j a} (\Ktxx)_{ij} (\Ktxx)_{ai}
+    - 2 \sum_{i j a} (\Ktxx)_{ij} (\Ktxx)_{aj}
+    + 2 \sum_{ij} (\Ktxx)_{ij}^2
+    \Bigg]
+\\&=
+    \frac{1}{(m)_4} \Bigg[
+      \left( \one\tp \Ktxx \one \right)^2
+    - 4 \norm{\Ktxx \one}^2
+    + 2 \norm{\Ktxx}_F^2
+    \Bigg]
+.\end{align*}
+We also need
+\begin{align*}
+    \inner{\muX}{\muX} \inner{\muX}{\muY}
+  &= \E_{X_1, X_2, X_3, Y}\left[ k(X_1, X_2) k(X_3, Y) \right]
+\\&\approx
+    \frac{1}{m (m)_3} \sum_i \sum_{j \ne i} k(X_i, X_j)
+      \sum_{\ell \notin \{i, j\}} \sum_a k(X_\ell, Y_a)
+\\&=
+    \frac{1}{m (m)_3} \sum_{ij} (\Ktxx)_{ij} \left[
+      \sum_{\ell a} (\Kxy)_{\ell a}
+    - \sum_a (\Kxy)_{i a}
+    - \sum_a (\Kxy)_{j a}
+    \right]
+\\&=
+    \frac{1}{m (m)_3} \left[
+      \sum_{i j \ell a} (\Ktxx)_{ij} (\Kxy)_{\ell a}
+    - \sum_{i j a} (\Ktxx)_{ij} (\Kxy)_{i a}
+    - \sum_{i j a} (\Ktxx)_{ij} (\Kxy)_{j a}
+    \right]
+\\&=
+    \frac{1}{m (m)_3} \left[
+      \one\tp \Ktxx \one \one\tp \Kxy \one
+    - 2 \, \one\tp \Ktxx \Kxy \one
+    \right]
+\end{align*}
+and
+\begin{align*}
+    \inner{\muX}{\muY} \inner{\muX}{\muZ}
+  &\approx
+    \frac{1}{m^3 (m-1)} \sum_i \sum_a \sum_{j \ne i} \sum_b k(X_i, Y_a) k(X_j, Z_b)
+\\&= \frac{1}{m^3 (m-1)} \left[
+      \sum_{i j a b} (\Kxy)_{ia} (\Kxz)_{jb}
+    - \sum_{i a b} (\Kxy)_{ia} (\Kxz)_{ib}
+    \right]
+\\&= \frac{1}{m^3 (m-1)} \left[
+      \one\tp \Kxy \one \one\tp \Kxz \one
+    - \one\tp \Kxy\tp \Kxz \one
+    \right]
+.\end{align*}
 
+We also need some similar terms with $\varphi(X)$ shared:
+\begin{align*}
+    \E\left[ \inner{\varphi(X)}{\muX}^2 \right]
+  &\approx
+    \frac{1}{(m)_3} \sum_i \sum_{j \ne i} \sum_{\ell \notin \{i, j\}} k(X_i, X_j) k(X_i, X_\ell)
+\\&= \frac{1}{(m)_3} \sum_{ij} \sum_{\ell \notin \{i, j\}} (\Ktxx)_{ij} k(X_i, X_\ell)
+\\&= \frac{1}{(m)_3} \sum_{ij} \sum_{\ell \ne j} (\Ktxx)_{ij} (\Ktxx)_{i\ell}
+\\&= \frac{1}{(m)_3} \left[
+      \sum_{ij\ell} (\Ktxx)_{ij} (\Ktxx)_{i\ell}
+    - \sum_{ij} (\Ktxx)_{ij}^2
+    \right]
+\\&= \frac{1}{(m)_3} \left[
+      \one\tp \Ktxx \Ktxx \one
+    - \norm{\Ktxx}_F^2
+    \right]
+\\&= \frac{1}{(m)_3} \left[
+      \norm{\Ktxx \one}^2
+    - \norm{\Ktxx}_F^2
+    \right]
+,\end{align*}
+\begin{align*}
+% \\
+    \E\left[ \inner{\varphi(X)}{\muY}^2 \right]
+  &\approx
+    \frac{1}{m^2 (m-1)} \sum_i \sum_j \sum_{\ell \ne j} k(X_i, Y_j) k(X_i, Y_\ell)
+\\&= \frac{1}{m^2 (m-1)} \left[
+      \sum_{i j \ell} (\Kxy)_{ij} (\Kxy)_{i\ell}
+    - \sum_{i j} (\Kxy)_{ij}^2
+    \right]
+% \\&= \frac{1}{m^2 (m-1)} \left[
+%       \one\tp \Kxy\tp \Kxy \one
+%     - \norm{\Kxy}_F^2
+%     \right]
+\\&= \frac{1}{m^2 (m-1)} \left[
+      \norm{\Kxy \one}^2
+    - \norm{\Kxy}_F^2
+    \right]
+,\end{align*}
+\begin{align*}
+    \E\left[ \inner{\varphi(X)}{\muX} \inner{\varphi(X)}{\muY} \right]
+  &\approx
+    \frac{1}{m^2 (m-1)} \sum_i \sum_{j \ne i} \sum_{\ell} k(X_i, X_j) k(X_i, Y_\ell)
+\\&= \frac{1}{m^2 (m-1)} \sum_{i j \ell} (\Ktxx)_{ij} \Kxy
+\\&= \frac{1}{m^2 (m-1)} \one\tp \Ktxx \Kxy \one
+,\end{align*}
+and
+\begin{align*}
+    \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
+  &\approx
+    \frac{1}{m^3} \sum_{ij\ell} k(X_i, Y_j) k(X_i, Z_\ell)
+   = \frac{1}{m^3} \one\tp \Kxy\tp \Kxz \one
+.\end{align*}
+
+Finally, we need a few terms that don't involve any mean embeddings:
+\begin{align*}
+    \E\left[ k(X_1, X_2)^2 \right]
+  &\approx \frac{1}{m (m-1)} \sum_{i \ne j} k(X_i, X_j)^2
+   = \frac{1}{m (m-1)} \norm{\Ktxx}_F^2
+\\
+    \E\left[ k(X, Y)^2 \right]
+  &\approx \frac{1}{m^2} \norm{\Kxy}_F^2
+\\
+    \E\left[ k(X, Y) k(X, Z) \right]
+  &\approx \frac{1}{m^3} \sum_{i j \ell} k(X_i, Y_j) k(X_i, Z_j)
+   = \frac{1}{m^3} \one\tp \Kxy\tp \Kxz \one
+\\
+    \E\left[ k(X, Y_1) k(X, Y_2) \right]
+  &\approx \frac{1}{m^2 (m-1)} \sum_{i j} \sum_{\ell \ne j} k(X_i, Y_j) k(X_i, Y_\ell)
+\\&= \frac{1}{m^2 (m-1)} \left[
+    \sum_{ij\ell} (\Kxy)_{i j} (\Kxy)_{i \ell}
+  - \sum_{ij} (\Kxy)_{i j}^2
+  \right]
+\\&= \frac{1}{m^2 (m-1)} \left[
+    \norm{\Kxy \one}^2
+  - \norm{\Kxy}_F^2
+  \right]
+\\
+    \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
+  &\approx \frac{1}{m^2 (m-1)} \sum_{i j} \sum_{\ell \ne j} k(X_i, Y_j) k(Y_j, Y_\ell)
+\\&= \frac{1}{m^2 (m-1)} \sum_{ij\ell} (\Kxy)_{ij} (\Ktyy)_{j \ell}
+\\&= \frac{1}{m^2 (m-1)} \one\tp \Kxy \Ktyy \one
+.\end{align*}
+
+\subsection{Final MMD variance estimator}
+Recall the asymptotic variance $V_m \to \Var\left[ \mmdsqu(\setX, \setY) \right]$ of \eqref{eq:final-mmd-exp}:
+\begin{align*}
+    V_m
+  &=
+    \frac{4 (m-2)}{m (m-1)} \E\left[ \inner{\varphi(X)}{\muX}^2 \right]
+  - \frac{2 (2 m - 3)}{m (m-1)} \inner{\muX}{\muX}^2
+\\&\qquad
+  + \frac{4 (m-2)}{m (m-1)} \E\left[ \inner{\varphi(Y)}{\muY}^2 \right]
+  - \frac{2 (2 m - 3)}{m (m-1)} \inner{\muY}{\muY}^2
+\\&\qquad
+  + \frac{4 (m-2)}{m (m-1)} \left( \E\left[ \inner{\varphi(X)}{\muY}^2 \right] + \E\left[ \inner{\varphi(Y)}{\muX}^2 \right] \right)
+  - \frac{4 (2 m - 3)}{m (m-1)} \inner{\muX}{\muY}^2
+\\&\qquad
+  - \frac{8}{m} \E\left[ \inner{\varphi(X)}{\muX} \inner{\varphi(X)}{\muY} \right]
+  + \frac{8}{m} \inner{\muX}{\muX} \inner{\muX}{\muY}
+\\&\qquad
+  - \frac{8}{m} \E\left[ \inner{\varphi(Y)}{\muY} \inner{\varphi(Y)}{\muX} \right]
+  + \frac{8}{m} \inner{\muY}{\muY} \inner{\muX}{\muY}
+\\&\qquad
+  + \frac{2}{m (m-1)} \E\left[ k(X_1, X_2)^2 \right]
+  + \frac{2}{m (m-1)} \E\left[ k(Y_1, Y_2)^2 \right]
+  + \frac{4}{m (m-1)} \E\left[ k(X, Y)^2 \right]
+.\end{align*}
+Plugging in the estimators of \cref{sec:sub-estimators}, we at last get an estimator for the variance:
+\begin{align*}
+    \hat V_m
+  &=
+    \frac{4}{m^2 (m-1)^2} \left[ \norm{\Ktxx \one}^2 + \norm{\Ktyy \one}^2 - \norm{\Ktxx}_F^2 - \norm{\Ktyy}_F^2 \right]
+\\&\qquad
+  + \frac{2 (2 m - 3)}{(m)_2 (m)_4} \left[
+  - \left(\one\tp \Ktxx \one \right)^2
+  - \left(\one\tp \Ktyy \one \right)^2
+  + 4 \norm{\Ktxx \one}^2
+  + 4 \norm{\Ktyy \one}^2
+  - 2 \norm{\Ktxx}_F^2
+  - 2 \norm{\Ktyy}_F^2
+  \right]
+\\&\qquad
+  + \frac{4 (m-2)}{m^3 (m-1)^2} \left(
+      \norm{\Kxy \one}^2 - \norm{\Kxy}_F^2
+    + \norm{\Kxy\tp \one}^2 - \norm{\Kxy}_F^2
+    \right)
+\\&\qquad
+  + \frac{4 (2 m - 3)}{m^3 (m-1)^3} \left[
+    - \left(\one\tp \Kxy \one\right)^2
+    + \norm{\Kxy\tp \one}^2
+    + \norm{\Kxy \one}^2
+    - \norm{\Kxy}_F^2
+  \right]
+\\&\qquad
+  - \frac{8}{m^3 (m-1)} \one\tp \Ktxx \Kxy \one
+  + \frac{8}{m^2 (m)_3} \left[ \one\tp \Ktxx \one \one\tp \Kxy \one - 2 \, \one\tp \Ktxx \Kxy \one \right]
+\\&\qquad
+  - \frac{8}{m^3 (m-1)} \one\tp \Ktyy \Kxy\tp \one
+  + \frac{8}{m^2 (m)_3} \left[ \one\tp \Ktyy \one \one\tp \Kxy \one - 2 \, \one\tp \Ktyy \Kxy\tp \one \right]
+\\&\qquad
+  + \frac{2}{m^2 (m-1)^2} \left[ \norm{\Ktxx}_F^2 + \norm{\Ktyy}_F^2 \right]
+  + \frac{4}{m^3 (m-1)} \norm{\Kxy}_F^2
+,\end{align*}
+which simplifies to
+\begin{equation} \label{eq:final-mmd-est}
+\begin{aligned}
+    \hat V_m
+  &=
+    \frac{4}{(m)_4} \left[ \norm{\Ktxx \one}^2 + \norm{\Ktyy \one}^2 \right]
+  + \frac{4 (3m-5)}{m^3 (m-1)^2} \left[ \norm{\Kxy \one}^2 + \norm*{\Kxy\tp \one}^2 \right]
+\\&\qquad
+  - \frac{8}{m^2 (m^2 - 3 m + 2)} \left[ \one\tp \Ktxx \Kxy \one + \one\tp \Ktyy \Kxy\tp \one \right]
+\\&\qquad
+  + \frac{8}{m^2 (m)_3} \left[ \left( \one\tp \Ktxx \one + \one\tp \Ktyy \one \right) \left( \one\tp \Kxy \one \right) \right]
+\\&\qquad
+  - \frac{2 (2 m - 3)}{(m)_2 (m)_4} \left[
+      \left(\one\tp \Ktxx \one \right)^2
+    + \left(\one\tp \Ktyy \one \right)^2
+  \right]
+  - \frac{4 (2 m - 3)}{m^3 (m-1)^3} \left[
+      \left(\one\tp \Kxy \one\right)^2
+  \right]
+\\&\qquad
+  - \frac{2}{m (m^3 - 6 m^2 + 11 m - 6)} \left[ \norm{\Ktxx}_F^2 + \norm{\Ktyy}_F^2 \right]
+  + \frac{4 (m-2)}{m^2 (m-1)^3} \norm{\Kxy}_F^2
+.\end{aligned}
+\end{equation}
+
+\subsection{Final difference of MMD variance estimator}
+The result \eqref{eq:final-diff-exp} of \cref{sec:diff-expression} was that
+$\Var\left[ \mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ) \right]$
+tends to
+\begin{align*}
+     \nu_m
+  &= 
+    \frac{4 (m-2)}{m (m-1)} \left[
+      \E\left[ \inner{\varphi(X)}{\muY}^2 \right]
+    + \E\left[ \inner{\varphi(X)}{\muZ}^2 \right]
+    + \E\left[ \inner{\varphi(Y)}{\muX}^2 \right]
+    + \E\left[ \inner{\varphi(Z)}{\muX}^2 \right]
+    \right]
+\\&\qquad
+  + \frac{4 (m-2)}{m (m-1)} \left[
+      \E\left[ \inner{\varphi(Y)}{\muY}^2 \right]
+    + \E\left[ \inner{\varphi(Z)}{\muZ}^2 \right]
+    \right]
+\\&\qquad
+  - \frac{4 (2m-3)}{m (m-1)} \left[
+      \inner{\muX}{\muY}^2
+    + \inner{\muX}{\muZ}^2
+    \right]
+  - \frac{2 (2m-3)}{m (m-1)} \left[
+      \inner{\muY}{\muY}^2
+    + \inner{\muZ}{\muZ}^2
+    \right]
+\\&\qquad
+  + \frac{8}{m} \left[
+      \inner{\muX}{\muY} \inner{\muX}{\muZ}
+    + \inner{\muX}{\muY} \inner{\muY}{\muY}
+    + \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
+  \right]
+\\&\qquad
+  - \frac{8(m-2)}{m (m-1)} \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
+\\&\qquad
+  - \frac{8(m-2)}{m (m-1)} \left(
+      \E\left[ \inner{\varphi(Y)}{\muX} \inner{\varphi(Y)}{\muY} \right]
+    + \E\left[ \inner{\varphi(Z)}{\muX} \inner{\varphi(Z)}{\muZ} \right]
+    \right)
+\\&\qquad
+  + \frac{4}{m (m-1)} \left(
+      \E\left[ k(X, Y)^2 \right]
+    + \E\left[ k(X, Z)^2 \right]
+    \right)
+  + \frac{2}{m (m-1)} \left(
+      \E\left[ k(Y_1, Y_2)^2 \right]
+    + \E\left[ k(Z_1, Z_2)^2 \right]
+    \right)
+\\&\qquad
+  - \frac{8}{m (m-1)} \left(
+      \E\left[ k(X, Y) k(X, Z) \right]
+    \right)
+  - \frac{8}{m (m-1)} \left(
+      \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
+    + \E\left[ k(X, Z_1) k(Z_1, Z_2) \right]
+    \right)
+,\end{align*}
+which gives us the estimator
+\begin{align*}
+     \nu_m
+  &= 
+    \frac{4 (m-2)}{m^3 (m-1)^2} \left[
+      \norm{\Kxy \one}^2
+    + \norm{\Kxy\tp \one}^2
+    + \norm{\Kxz \one}^2
+    + \norm{\Kxz\tp \one}^2
+    - 2 \norm{\Kxy}_F^2
+    - 2 \norm{\Kxz}_F^2
+    \right]
+\\&\qquad
+  + \frac{4}{m^2 (m-1)^2} \left[
+      \norm{\Ktyy \one}^2
+    - \norm{\Ktyy}_F^2
+    + \norm{\Ktzz \one}^2
+    - \norm{\Ktzz}_F^2
+    \right]
+\\&\qquad
+  - \frac{4 (2m-3)}{m^3 (m-1)^3} \left[
+      \left(\one\tp \Kxy \one\right)^2
+    + \left(\one\tp \Kxz \one\right)^2
+    - \norm{\Kxy \one}^2
+    - \norm{\Kxz \one}^2
+    - \norm{\Kxy\tp \one}^2
+    - \norm{\Kxz\tp \one}^2
+\right.\\&\qquad\qquad\qquad\qquad\qquad\left.
+    + \norm{\Kxy}_F^2
+    + \norm{\Kxz}_F^2
+    \right]
+\\&\qquad
+  - \frac{2 (2m-3)}{(m)_2 (m)_4} \left[
+      \left( \one\tp \Ktyy \one\right)^2
+    + \left( \one\tp \Ktzz \one\right)^2
+    - 4 \norm{\Ktyy \one}^2
+    - 4 \norm{\Ktzz \one}^2
+    + 2 \norm{\Ktyy}_F^2
+    + 2 \norm{\Ktzz}_F^2
+    \right]
+\\&\qquad
+  + \frac{8}{m^4 (m-1)} \left[
+      \one\tp \Kxy \one \one\tp \Kxz \one
+    - \one\tp \Kxy\tp \Kxz \one
+    \right]
+\\&\qquad
+  + \frac{8}{m^2 (m)_3} \left[
+      \one\tp \Ktyy \one \one\tp \Kxy \one
+    + \one\tp \Ktzz \one \one\tp \Kxz \one
+    - 2 \, \one\tp \Ktyy \Kxy\tp \one
+    - 2 \, \one\tp \Ktzz \Kxz\tp \one
+  \right]
+\\&\qquad
+  - \frac{8(m-2)}{m^4 (m-1)} \one\tp \Kxy\tp \Kxz \one
+\\&\qquad
+  - \frac{8(m-2)}{m^3 (m-1)^2} \left[
+      \one\tp \Ktyy \Kxy\tp \one
+    + \one\tp \Ktzz \Kxz\tp \one
+    \right]
+\\&\qquad
+  + \frac{4}{m^3 (m-1)} \left(
+      \norm{\Kxy}_F^2
+    + \norm{\Kxz}_F^2
+    \right)
+  + \frac{2}{m^2 (m-1)^2} \left(
+      \norm{\Ktyy}_F^2
+    + \norm{\Ktzz}_F^2
+    \right)
+\\&\qquad
+  - \frac{8}{m^4 (m-1)} \one\tp \Kxy\tp \Kxz \one
+  - \frac{8}{m (m-1)} \left(
+      \one\tp \Kxy \Ktyy \one
+    + \one\tp \Kxz \Ktzz \one
+    \right)
+.\end{align*}
+Combining like terms, we obtain
+\begin{equation} \label{eq:final-diff-est}
+\begin{aligned}
+     \hat\nu_m
+  &=
+    \frac{4 (m^2 - m - 1)}{m^3 (m-1)^3} \left[
+      \norm{\Kxy \one}^2
+    + \norm{\Kxy\tp \one}^2
+    + \norm{\Kxz \one}^2
+    + \norm{\Kxz\tp \one}^2
+    \right]
+\\&\qquad
+  + \frac{4}{(m)_4} \left[
+      \norm{\Ktyy \one}^2
+    + \norm{\Ktzz \one}^2
+    \right]
+\\&\qquad
+  - \frac{8}{m^3 (m-1)} \one\tp \Kxy\tp \Kxz \one
+\\&\qquad
+  - \frac{8 (m^4 - 3 m^3 + 3 m^2 - 2m + 2)}{m^3 (m-1)^2 (m-2)} \left[
+      \one\tp \Ktyy \Kxy\tp \one
+    + \one\tp \Ktzz \Kxz\tp \one
+    \right]
+\\&\qquad
+  - \frac{4 (2m-3)}{m^3 (m-1)^3} \left[
+      \left(\one\tp \Kxy \one\right)^2
+    + \left(\one\tp \Kxz \one\right)^2
+    \right]
+  - \frac{2 (2m-3)}{(m)_2 (m)_4} \left[
+      \left( \one\tp \Ktyy \one\right)^2
+    + \left( \one\tp \Ktzz \one\right)^2
+    \right]
+\\&\qquad
+  + \frac{8}{m^4 (m-1)} \one\tp \Kxy \one \one\tp \Kxz \one
+  + \frac{8}{m^2 (m)_3} \left[
+      \one\tp \Ktyy \one \one\tp \Kxy \one
+    + \one\tp \Ktzz \one \one\tp \Kxz \one
+    \right]
+\\&\qquad
+  - \frac{4 (m-2)}{m^2 (m-1)^3} \left[
+      \norm{\Kxy}_F^2
+    + \norm{\Kxz}_F^2
+    \right]
+  - \frac{2}{m (m^3 - 6 m^2 + 11m - 6)} \left[
+      \norm{\Ktyy}_F^2
+    + \norm{\Ktzz}_F^2 
+    \right]
+.\end{aligned}
+\end{equation}
 
 \printbibliography
 
