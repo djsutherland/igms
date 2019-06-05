@@ -43,7 +43,7 @@
 \newcommand{\setX}{\mathbf{X}}
 \newcommand{\setY}{\mathbf{Y}}
 \newcommand{\setZ}{\mathbf{Z}}
-\newcommand{\setV}{\mathbf{V}}
+\newcommand{\setU}{\mathbf{U}}
 \newcommand{\setW}{\mathbf{W}}
 
 \makeatletter
@@ -63,7 +63,7 @@
 \makeatother
 
 
-\title{Estimators for the asymptotic variance of MMD estimators}
+\title{Unbiased estimators for the variance of MMD estimators}
 \author{D.\ J.\ Sutherland}
 \date{June 2019}
 
@@ -74,19 +74,20 @@
 \begin{abstract}
 The maximum mean discrepancy (MMD) is a kernel-based distance between probability distributions useful in many applications \parencite{mmd-jmlr},
 bearing a simple estimator with pleasing computational and statistical properties.
-\Textcite{three-sample} used the asymptotic theory of U-statistics
-to derive estimators for the asymptotic variance of the U-statistic MMD estimator
+\Textcite{three-sample} used the theory of U-statistics
+to derive estimators for the variance of the U-statistic MMD estimator
 and differences between two such estimators.
 (Variance estimators are very useful in, for example, two-sample testing problems.)
-Their estimator for this variance, however, is unnecessarily biased.
-\Textcite{opt-mmd} removed some of these biases,
-but in fact missed some (small) biases in the estimator.
+Their estimator for this variance, however, is unnecessarily biased and drops lower-order terms.
+\Textcite{opt-mmd} incorporated lower-order terms for the MMD estimator
+and corrected some of these biases,
+but in fact missed some (small) biases in their estimator.
 In this note,
-we derive a truly unbiased estimator for the variance of both the squared MMD and the difference of two correlated squared MMD estimators.
+we derive a truly unbiased estimator for the variance of both the squared MMD estimator and the difference of two correlated squared MMD estimators.
 \end{abstract}
 
 We give only minimal background in this note;
-see \textcite{three-sample,opt-mmd} for more about why one would care about this problem.
+see \textcite{three-sample,opt-mmd} for uses of these estimators.
 
 Given a positive semidefinite kernel $k : \X \times \X \to \R$ corresponding to an RKHS $\h$,
 there exists a feature map $\varphi : \X \to \h$
@@ -108,7 +109,7 @@ Suppose we have independent samples
 $\setX := \{ X_i \}_{i=1}^m \sim \PX^m$,
 $\setY := \{ Y_i \}_{i=1}^m \sim \PY^m$,
 $\setZ := \{ Z_i \}_{i=1}^m \sim \PZ^m$.
-The following is an unbiased estimator with \emph{nearly} minimal variance among unbiased estimators \parencite{mmd-jmlr}:
+The following is an unbiased estimator of $\mmd(\PX, \PY)$ with \emph{nearly} minimal variance among unbiased estimators \parencite{mmd-jmlr}:
 \[
     \mmdsqu(\setX, \setY)
     := \frac{1}{m (m - 1)} \sum_{i \ne j}^m \left[
@@ -117,12 +118,13 @@ The following is an unbiased estimator with \emph{nearly} minimal variance among
 .\]
 Compared to the MVUE, terms of the form $k(X_i, Y_i)$ are dropped.
 This estimator, however, is a $U$ statistic,
-for which there is well-established theory \parencite[Chapter~5]{serfling}
-for e.g.\ the asymptotic variance.
+for which there is well-established theory \parencite[Chapter~5]{serfling},
+including expressions for the variance.
 
 We assume Bochner integrability throughout this note;
-for unbounded kernels on unbounded distributions,
-this technical condition must be verified.
+this technical condition holds automatically for continuous bounded kernels
+or for continuous kernels on compact domains,
+but must be verified in other situations.
 
 Readers looking only for the final estimators, and not the fairly tedious derivations,
 should skip simply to \eqref{eq:final-mmd-est} and \eqref{eq:final-diff-est}. 
@@ -130,42 +132,44 @@ should skip simply to \eqref{eq:final-mmd-est} and \eqref{eq:final-diff-est}.
 
 \section{Asymptotic variance expressions} \label{sec:var-expressions}
 
-We will first derive expressions for the asymptotic variances of
+We will first derive expressions for the variances of
 $\mmdsqu(\setX, \setY)$
 and $\mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)$.
 This section is quite similar to Appendix A of \textcite{three-sample},
-but avoids unnecessarily dropping lower-order terms (which provides little computational advantage).
+but avoids unnecessarily dropping lower-order terms
+(which provides little computational advantage, and may harm the accuracy for small sample sizes).
 The result \eqref{eq:final-mmd-exp} of \cref{sec:mmd-expression} is identical to that of \textcite{opt-mmd}.
 
 
 \subsection{Variance of the MMD estimator} \label{sec:mmd-expression}
 
-Let $V_i$ refer to the pair $(X_i, Y_i)$,
+Let $U_i$ denote the pair $(X_i, Y_i)$,
 and define the function
 \[
-    h(V_1, V_2) := k(X_1, X_2) + k(Y_1, Y_2) - k(X_1, Y_2) - k(X_2, Y_1)
+    h(U_1, U_2) := k(X_1, X_2) + k(Y_1, Y_2) - k(X_1, Y_2) - k(X_2, Y_1)
 .\]
 Then \[
-\mmdsqu(\setX, \setY) = \frac{1}{m (m-1)} \sum_{i \ne j} h(V_i, V_j)
+\mmdsqu(\setX, \setY) = \frac{1}{m (m-1)} \sum_{i \ne j} h(U_i, U_j)
 ,\]
-which is a $U$-statistic on the joint data $\setV$.
-Thus standard results \parencite[Chapter~5]{serfling}
+which is a $U$-statistic on the joint data $\setU$.
+Thus standard results \parencite[Section 5.2.1, Lemma A]{serfling}
 give us
 \[
     \Var\left[ \mmdsqu(\setX, \setY) \right]
-    \to \frac{4 (m-2)}{m (m-1)} \zeta_1 + \frac{2}{m (m-1)} \zeta_2
+    = V_m
+    := \frac{4 (m-2)}{m (m-1)} \zeta_1 + \frac{2}{m (m-1)} \zeta_2
 ,\] where
 \[
-    \zeta_1 := \Var_{V_1}\left[ \E_{V_2}\left[ h(V_1, V_2) \right] \right],
+    \zeta_1 := \Var_{U_1}\left[ \E_{U_2}\left[ h(U_1, U_2) \right] \right],
     \qquad
-    \zeta_2 := \Var_{V_1, V_2}\left[ h(V_1, V_2) \right]
+    \zeta_2 := \Var_{U_1, U_2}\left[ h(U_1, U_2) \right]
 .\]
 
 The first-order term $\zeta_1$ is:
 \begin{align*}
     \zeta_1
   &=
-    \Var_{V_1}\left[ \E_{V_2}\left[ h(V_1, V_2) \right] \right]
+    \Var_{U_1}\left[ \E_{U_2}\left[ h(U_1, U_2) \right] \right]
 \\&=
     \Var_{X_1, Y_1}\left[
       \E_{X_2} k(X_1, X_2)
@@ -223,7 +227,7 @@ we have
 We can similarly compute the second-order term $\zeta_2$ as:
 \begin{align*}
 \zeta_2
-  &= \Var\left[ h(v_1, v_2) \right]
+  &= \Var\left[ h(U_1, U_2) \right]
 \\&= \Var\left[ k(X_1, X_2) + k(Y_1, Y_2) - k(X_1, Y_2) - k(X_2, Y_1) \right]
 \\&=
     \Var\left[ k(X_1, X_2) \right]
@@ -258,10 +262,10 @@ We can similarly compute the second-order term $\zeta_2$ as:
 .\end{align*}
 
 Combining the two yields
+an expression for $\Var[\mmdsqu(\setX, \setY)]$ of
 \begin{align*}
-    \Var[\mmdsqu(X, Y)]
-    \to V_m
-  &:= \frac{2}{m (m-1)} \Big[ 2 (m-2) \zeta_1 + \zeta_2 \Big]
+    V_m
+  &= \frac{2}{m (m-1)} \Big[ 2 (m-2) \zeta_1 + \zeta_2 \Big]
 \\&= \frac{2}{m (m-1)} \Bigg[
     2 (m-2) \E\left[ \inner{\varphi(X)}{\muX}^2 \right]
   - 2 (m-2) \inner{\muX}{\muX}^2
@@ -322,7 +326,7 @@ and so
 \end{equation}
 
 
-\subsection{Variance of the difference of MMDs} \label{sec:diff-expression}
+\subsection{Variance of the difference of MMD estimators} \label{sec:diff-expression}
 
 Let $W_i := (X_i, Y_i, Z_i)$, and
 \[
@@ -332,18 +336,18 @@ f(W_1, W_2) :=
 .\]
 Then
 \[
-  \delta
-  := \mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)
+  \mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)
   = \frac{1}{m (m-1)} \sum_{i \ne j} f(W_i, W_j)
 \]
 is a $U$-statistic on $\setW$, so again
 \begin{gather*}
-  \Var[\delta]
-  \to \frac{4 (m-2)}{m (m-1)} \xi_1 + \frac{2}{m (m-1)} \xi_2
+  \Var[\mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)]
+  = \nu_m
+  := \frac{4 (m-2)}{m (m-1)} \xi_1 + \frac{2}{m (m-1)} \xi_2
 \\
-  \xi_1 := \Var_{d_1}\left[ \E_{d_2}\left[ f(d_1, d_2) \right] \right]
+  \xi_1 := \Var_{W_1}\left[ \E_{W_2}\left[ f(W_1, W_2) \right] \right]
   \qquad
-  \xi_2 := \Var_{d_1, d_2}\left[ f(d_1, d_2) \right]
+  \xi_2 := \Var_{W_1, W_2}\left[ f(W_1, W_2) \right]
 .\end{gather*}
 
 We can proceed as before, but with more terms.
@@ -455,10 +459,10 @@ The second-order term $\xi_2$ is
   + 4 \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
 .\end{align*}
 
-Combining the two,
+Combining the two
+gives an expression for $\Var\left[\mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)\right]$ of
 \begin{align*}
-    \Var[\delta]
-    \to \nu_m
+    \nu_m
   &:= \frac{2}{m (m-1)} \Big[ 2 (m-2) \xi_1 + \xi_2 \Big]
 \\&= \frac{2}{m (m-1)} \Bigg[
     2(m-2) \E\left[ \inner{\varphi(X)}{\muY}^2 \right]
@@ -786,7 +790,7 @@ Finally, we need a few terms that don't involve any mean embeddings:
 .\end{align*}
 
 \subsection{Final MMD variance estimator}
-Recall the asymptotic variance $V_m \to \Var\left[ \mmdsqu(\setX, \setY) \right]$ of \eqref{eq:final-mmd-exp}:
+Recall the variance $V_m = \Var\left[ \mmdsqu(\setX, \setY) \right]$ of \eqref{eq:final-mmd-exp}:
 \begin{align*}
     V_m
   &=
@@ -873,7 +877,7 @@ which simplifies to
 \subsection{Final difference of MMD variance estimator}
 The result \eqref{eq:final-diff-exp} of \cref{sec:diff-expression} was that
 $\Var\left[ \mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ) \right]$
-tends to
+is
 \begin{align*}
      \nu_m
   &= 
