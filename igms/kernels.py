@@ -124,6 +124,32 @@ class SquareMatrix(Matrix):
         return self.sq_sum() - self.sq_trace()
 
 
+class SymmetricMatrix(SquareMatrix):
+    def col_sums(self):
+        return self.row_sums()
+
+    def sums(self):
+        return self.row_sums()
+
+    def offdiag_col_sums(self):
+        return self.offdiag_row_sums()
+
+    def offdiag_sums(self):
+        return self.offdiag_row_sums()
+
+    def col_sums_sq_sum(self):
+        return self.row_sums_sq_sum()
+
+    def sums_sq_sum(self):
+        return self.row_sums_sq_sum()
+
+    def offdiag_col_sums_sq_sum(self):
+        return self.offdiag_row_sums_sq_sum()
+
+    def offdiag_sums_sq_sum(self):
+        return self.offdiag_row_sums_sq_sum()
+
+
 class ConstDiagMatrix(SquareMatrix):
     def __init__(self, M, diag_value):
         super().__init__(M)
@@ -140,8 +166,17 @@ class ConstDiagMatrix(SquareMatrix):
         return self.n * (self.diag_value ** 2)
 
 
-def as_matrix(M, const_diagonal=False):
-    if const_diagonal is not False:
+class SymmetricConstDiagMatrix(ConstDiagMatrix, SymmetricMatrix):
+    pass
+
+
+def as_matrix(M, const_diagonal=False, symmetric=False):
+    if symmetric:
+        if const_diagonal is not False:
+            return SymmetricConstDiagMatrix(M, diag_value=const_diagonal)
+        else:
+            return SymmetricMatrix(M)
+    elif const_diagonal is not False:
         return ConstDiagMatrix(M, diag_value=const_diagonal)
     elif M.shape[0] == M.shape[1]:
         return SquareMatrix(M)
@@ -236,43 +271,36 @@ class LazyKernelPair:
     @_cache
     def XX(self):
         if self._storage == _StorageMode.STACKED:
-            big_res = self._compute_stacked()
-            return as_matrix(
-                big_res[: self.n_X, : self.n_X], const_diagonal=self.const_diagonal
-            )
+            res = self._compute_stacked()[: self.n_X, : self.n_X]
         else:
             X_info = self._precompute_X()
             res = self._compute(self.X, self.X, *X_info, *X_info)
-            return as_matrix(res, const_diagonal=self.const_diagonal)
+        return as_matrix(res, const_diagonal=self.const_diagonal, symmetric=True)
 
     @property
     @_cache
     def YY(self):
-        if self._storage == _StorageMode.STACKED:
-            big_res = self._compute_stacked()
-            return as_matrix(
-                big_res[self.n_X :, self.n_X :], const_diagonal=self.const_diagonal
-            )
-        elif self._storage == _StorageMode.TO_SELF:
+        if self._storage == _StorageMode.TO_SELF:
             return self.XX()
+        elif self._storage == _StorageMode.STACKED:
+            res = self._compute_stacked()[self.n_X :, self.n_X :]
         else:
             Y_info = self._precompute_Y()
             res = self._compute(self.Y, self.Y, *Y_info, *Y_info)
-            return as_matrix(res, const_diagonal=self.const_diagonal)
+        return as_matrix(res, const_diagonal=self.const_diagonal, symmetric=True)
 
     @property
     @_cache
     def XY(self):
-        if self._storage == _StorageMode.STACKED:
-            big_res = self._compute_stacked()
-            return as_matrix(big_res[: self.n_X, self.n_X :])
-        elif self._storage == _StorageMode.TO_SELF:
+        if self._storage == _StorageMode.TO_SELF:
             return self.XX()
+        elif self._storage == _StorageMode.STACKED:
+            res = self._compute_stacked()[: self.n_X, self.n_X :]
         else:
             X_info = self._precompute_X()
             Y_info = self._precompute_Y()
             res = self._compute(self.X, self.Y, *X_info, *Y_info)
-            return as_matrix(res)
+        return as_matrix(res)
 
     @_cache
     def joint(self):

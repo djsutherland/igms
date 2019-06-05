@@ -12,14 +12,17 @@ class Estimator(enum.Enum):
 
 
 def mmd2(kernel_pair, estimator=Estimator.UNBIASED):
-    K = kernel_pair
+    XX = kernel_pair.XX
+    XY = kernel_pair.XY
+    YY = kernel_pair.YY
 
     if estimator == Estimator.BIASED:
-        return K.XX.mean() + K.YY.mean() - 2 * K.XY.mean()
+        return XX.mean() + YY.mean() - 2 * XY.mean()
     elif estimator == Estimator.UNBIASED:
-        return K.XX.offdiag_mean() + K.YY.offdiag_mean() - 2 * K.XY.mean()
+        return XX.offdiag_mean() + YY.offdiag_mean() - 2 * XY.mean()
     elif estimator == Estimator.U_STAT:
-        return K.XX.offdiag_mean() + K.YY.offdiag_mean() - 2 * K.XY.offdiag_mean()
+        assert XY.m == XY.n
+        return XX.offdiag_mean() + YY.offdiag_mean() - 2 * XY.offdiag_mean()
     else:
         raise ValueError(f"unknown estimator type '{estimator}'")
 
@@ -76,7 +79,9 @@ def mmd2_and_variance(kernel_pair, estimator=Estimator.U_STAT):
         )
     assert kernel_pair.n_X == kernel_pair.n_Y
     m = kernel_pair.n_X
-    K = kernel_pair
+    XX = kernel_pair.XX
+    XY = kernel_pair.XY
+    YY = kernel_pair.YY
 
     # we're caching anyway
     mmd_est = mmd2(kernel_pair, estimator=estimator)
@@ -93,20 +98,17 @@ def mmd2_and_variance(kernel_pair, estimator=Estimator.U_STAT):
     twom3 = 2 * m - 3
 
     var_est = (
-        (4 / mdown4) * (K.XX.offdiag_row_sums_sq_sum() + K.YY.offdiag_row_sums_sq_sum())
+        (4 / mdown4) * (XX.offdiag_sums_sq_sum() + YY.offdiag_sums_sq_sum())
         + (4 * (mm - m - 1) / (mmm * m1_m1))
-        * (K.XY.row_sums_sq_sum() + K.XY.col_sums_sq_sum())
+        * (XY.row_sums_sq_sum() + XY.col_sums_sq_sum())
         - (8 / (mm * (mm - 3 * m + 2)))
-        * (
-            K.XX.offdiag_row_sums() @ K.XY.col_sums()
-            + K.YY.offdiag_row_sums() @ K.XY.row_sums()
-        )
-        + 8 / (mm * mdown3) * ((K.XX.offdiag_sum() + K.YY.offdiag_sum()) * K.XY.sum())
-        - (2 * twom3 / (mdown2 * mdown4)) * (K.XX.offdiag_sum() + K.YY.offdiag_sum())
-        - (4 * twom3 / (mmm * m1_m1_m1)) * K.XY.sum() ** 2
+        * (XX.offdiag_sums() @ XY.col_sums() + YY.offdiag_sums() @ XY.row_sums())
+        + 8 / (mm * mdown3) * ((XX.offdiag_sum() + YY.offdiag_sum()) * XY.sum())
+        - (2 * twom3 / (mdown2 * mdown4)) * (XX.offdiag_sum() + YY.offdiag_sum())
+        - (4 * twom3 / (mmm * m1_m1_m1)) * XY.sum() ** 2
         - (2 / (m * (mmm - 6 * mm + 11 * m - 6)))
-        * (K.XX.offdiag_sq_sum() + K.YY.offdiag_sq_sum())
-        + (4 * m2 / (mm * m1_m1_m1)) * K.XY.sq_sum()
+        * (XX.offdiag_sq_sum() + YY.offdiag_sq_sum())
+        + (4 * m2 / (mm * m1_m1_m1)) * XY.sq_sum()
     )
 
     return mmd_est, var_est
@@ -179,7 +181,7 @@ def diff_mmd2_and_variance(kernel_pair_XY, kernel_pair_XZ, estimator=Estimator.U
             + XZ.row_sums_sq_sum()
             + XZ.col_sums_sq_sum()
         )
-        + (4 / mdown4) * (YY.row_sums_sq_sum() + ZZ.row_sums_sq_sum())
+        + (4 / mdown4) * (YY.sums_sq_sum() + ZZ.sums_sq_sum())
         - (8 / mmm * m1) * (XY.col_sums() @ XZ.col_sums())
         - (8 / (mm * (mm - 3 * m + 2)))
         * (
