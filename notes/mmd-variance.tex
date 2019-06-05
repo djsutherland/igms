@@ -1,5 +1,9 @@
 \documentclass{article}
 
+\usepackage[utf8]{inputenc}
+\usepackage[USenglish]{babel}
+\usepackage{csquotes}
+
 \usepackage{amsmath,amssymb}
 \usepackage{fullpage}
 
@@ -74,16 +78,15 @@
 \begin{abstract}
 The maximum mean discrepancy (MMD) is a kernel-based distance between probability distributions useful in many applications \parencite{mmd-jmlr},
 bearing a simple estimator with pleasing computational and statistical properties.
-\Textcite{three-sample} used the theory of U-statistics
-to derive estimators for the variance of the U-statistic MMD estimator
+Being able to efficiently estimate the variance of this estimator is very helpful to various problems in two-sample testing.
+Towards this end,
+\textcite{three-sample} used the theory of U-statistics
+to derive estimators for the variance of an MMD estimator,
 and differences between two such estimators.
-(Variance estimators are very useful in, for example, two-sample testing problems.)
-Their estimator for this variance, however, is unnecessarily biased and drops lower-order terms.
-\Textcite{opt-mmd} incorporated lower-order terms for the MMD estimator
-and corrected some of these biases,
-but in fact missed some (small) biases in their estimator.
-In this note,
-we derive a truly unbiased estimator for the variance of both the squared MMD estimator and the difference of two correlated squared MMD estimators.
+Their estimator, however, drops lower-order terms, and is unnecessarily biased.
+We show in this note~--~extending and correcting work of \textcite{opt-mmd}~--~%
+that we can find a truly unbiased estimator for the actual variance of both the squared MMD estimator and the difference of two correlated squared MMD estimators,
+at essentially no additional computational cost.
 \end{abstract}
 
 We give only minimal background in this note;
@@ -95,49 +98,51 @@ such that $k(X, Y) = \inner{\varphi(X)}{\varphi(Y)}$.
 The mean embedding \parencite{mean-embeddings} of a distribution $\PX$ is
 $\muX := \E_{X \sim \PX}[ \varphi(X) ] \in \h$,
 and the MMD is merely the distance between mean embeddings:
-\[
-  \mmd(\PX, \PY)
-  = \norm{ \muX - \muY }
-  = \left(
-      \E_{X, X' \sim \PX}\left[ k(X, X') \right]
+\begin{align*}
+  \mmd^2(\PX, \PY)
+  &= \norm{\muX - \muY}^2
+\\&=  \E_{X, X' \sim \PX}\left[ k(X, X') \right]
     + \E_{Y, Y' \sim \PY}\left[ k(Y, Y') \right]
     - 2 \E_{X \sim \PX, Y \sim \PY}\left[ k(X, Y) \right]
-    \right)^{1/2}
-.\]
+.\end{align*}
 
 Suppose we have independent samples
 $\setX := \{ X_i \}_{i=1}^m \sim \PX^m$,
 $\setY := \{ Y_i \}_{i=1}^m \sim \PY^m$,
 $\setZ := \{ Z_i \}_{i=1}^m \sim \PZ^m$.
 The following is an unbiased estimator of $\mmd(\PX, \PY)$ with \emph{nearly} minimal variance among unbiased estimators \parencite{mmd-jmlr}:
-\[
+\begin{equation} \label{eq:mmd-est}
     \mmdsqu(\setX, \setY)
     := \frac{1}{m (m - 1)} \sum_{i \ne j}^m \left[
         k(X_i, X_j) + k(Y_i, Y_j) - k(X_i, Y_j) - k(X_j, Y_i)
     \right]
-.\]
+.\end{equation}
 Compared to the MVUE, terms of the form $k(X_i, Y_i)$ are dropped.
 This estimator, however, is a $U$ statistic,
 for which there is well-established theory \parencite[Chapter~5]{serfling},
 including expressions for the variance.
 
-We assume Bochner integrability throughout this note;
-this technical condition holds automatically for continuous bounded kernels
+We assume Bochner integrability throughout this note,
+to be able to exchange expectations with inner products in $\h$.
+This technical condition holds automatically for continuous bounded kernels
 or for continuous kernels on compact domains,
 but must be verified in other situations.
 
-Readers looking only for the final estimators, and not the fairly tedious derivations,
-should skip simply to \eqref{eq:final-mmd-est} and \eqref{eq:final-diff-est}. 
+In this note, we first employ that theory to derive expressions for the variance in terms of various expectations of inner products in $\h$ (\cref{sec:var-expressions}).
+Then, in \cref{sec:estimators}, we derive unbiased estimators for these expressions,
+yielding the final results \eqref{eq:final-mmd-est} and \eqref{eq:final-diff-est}
+which are unbiased variance estimators evaluable in the same $\mathcal{O}(m^2)$ time
+it takes to evaluate \eqref{eq:mmd-est}.
 
 
-\section{Asymptotic variance expressions} \label{sec:var-expressions}
+\section{Variance expressions} \label{sec:var-expressions}
 
 We will first derive expressions for the variances of
 $\mmdsqu(\setX, \setY)$
 and $\mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)$.
 This section is quite similar to Appendix A of \textcite{three-sample},
 but avoids unnecessarily dropping lower-order terms
-(which provides little computational advantage, and may harm the accuracy for small sample sizes).
+(which provides almost no computational advantage, and may harm the accuracy for small sample sizes, although it does make for a less tedious derivation).
 The result \eqref{eq:final-mmd-exp} of \cref{sec:mmd-expression} is identical to that of \textcite{opt-mmd}.
 
 
@@ -325,6 +330,12 @@ and so
 .\end{aligned}
 \end{equation}
 
+We can see that, compared to $\xi_1$,
+\eqref{eq:final-mmd-exp} mostly just tweaks constants.
+The only new terms are the expectations of squared kernels,
+which as we'll see later will in fact not introduce any new computational expense
+as their estimators will combine with terms needed to correct biases in the other terms.
+
 
 \subsection{Variance of the difference of MMD estimators} \label{sec:diff-expression}
 
@@ -449,13 +460,13 @@ The second-order term $\xi_2$ is
   + \E\left[ k(Z_1, Z_2)^2 \right]
   - \inner{\muZ}{\muZ}^2
 \\&\qquad
-  - 4 \E\left[ k(X, Y) k(X, Z) \right]
+  - 4 \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
   + 4 \inner{\muX}{\muY} \inner{\muX}{\muZ}
 \\&\qquad
-  - 4 \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
+  - 4 \E\left[ \inner{\varphi(Y)}{\muX} \inner{\varphi(Y)}{\muY} \right]
   + 4 \inner{\muX}{\muY} \inner{\muY}{\muY}
 \\&\qquad
-  - 4 \E\left[ k(X, Z_1) k(Z_1, Z_2) \right]
+  - 4 \E\left[ \inner{\varphi(Z)}{\muX} \inner{\varphi(Z)}{\muZ} \right]
   + 4 \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
 .\end{align*}
 
@@ -463,7 +474,7 @@ Combining the two
 gives an expression for $\Var\left[\mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)\right]$ of
 \begin{align*}
     \nu_m
-  &:= \frac{2}{m (m-1)} \Big[ 2 (m-2) \xi_1 + \xi_2 \Big]
+  &= \frac{2}{m (m-1)} \Big[ 2 (m-2) \xi_1 + \xi_2 \Big]
 \\&= \frac{2}{m (m-1)} \Bigg[
     2(m-2) \E\left[ \inner{\varphi(X)}{\muY}^2 \right]
   - 2(m-2) \inner{\muX}{\muY}^2
@@ -504,13 +515,13 @@ gives an expression for $\Var\left[\mmdsqu(\setX, \setY) - \mmdsqu(\setX, \setZ)
   + \E\left[ k(Z_1, Z_2)^2 \right]
   - \inner{\muZ}{\muZ}^2
 \\&\qquad\qquad\qquad
-  - 4 \E\left[ k(X, Y) k(X, Z) \right]
+  - 4 \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
   + 4 \inner{\muX}{\muY} \inner{\muX}{\muZ}
 \\&\qquad\qquad\qquad
-  - 4 \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
+  - 4 \E\left[ \inner{\varphi(Y)}{\muX} \inner{\varphi(Y)}{\muY} \right]
   + 4 \inner{\muX}{\muY} \inner{\muY}{\muY}
 \\&\qquad\qquad\qquad
-  - 4 \E\left[ k(X, Z_1) k(Z_1, Z_2) \right]
+  - 4 \E\left[ \inner{\varphi(Z)}{\muX} \inner{\varphi(Z)}{\muZ} \right]
   + 4 \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
   \Bigg]
 \end{align*}
@@ -546,26 +557,22 @@ so that
     + \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
   \right]
 \\&\qquad\qquad\qquad
-  - 4(m-2) \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
+  - 4(m-1) \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
 \\&\qquad\qquad\qquad
-  - 4(m-2) \E\left[ \inner{\varphi(Y)}{\muX} \inner{\varphi(Y)}{\muY} \right]
+  - 4(m-1) \E\left[ \inner{\varphi(Y)}{\muX} \inner{\varphi(Y)}{\muY} \right]
 \\&\qquad\qquad\qquad
-  - 4(m-2) \E\left[ \inner{\varphi(Z)}{\muX} \inner{\varphi(Z)}{\muZ} \right]
+  - 4(m-1) \E\left[ \inner{\varphi(Z)}{\muX} \inner{\varphi(Z)}{\muZ} \right]
 \\&\qquad\qquad\qquad
   + 2 \E\left[ k(X, Y)^2 \right]
   + 2 \E\left[ k(X, Z)^2 \right]
   + \E\left[ k(Y_1, Y_2)^2 \right]
   + \E\left[ k(Z_1, Z_2)^2 \right]
-\\&\qquad\qquad\qquad
-  - 4 \E\left[ k(X, Y) k(X, Z) \right]
-  - 4 \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
-  - 4 \E\left[ k(X, Z_1) k(Z_1, Z_2) \right]
   \Bigg]
 .\end{aligned}
 \end{equation}
 
 
-\section{Estimators of terms}
+\section{Estimators of terms} \label{sec:estimators}
 
 \subsection{Sub-expressions} \label{sec:sub-estimators}
 We now give unbiased estimators of the various terms in the variance results of \cref{sec:var-expressions}.
@@ -578,19 +585,25 @@ We'll also use the falling factorial notation
 $(m)_k := m (m-1) \cdots (m - k + 1)$.
 
 For unbiased estimators, the important thing is to subtract off elements of sums which share data points. For example,
-
-\begin{align*}
+\begin{gather*}
 \inner{\muX}{\muY}
-&\approx \frac{1}{m^2} \sum_{i,j} k(X_i, Y_j)
+= \inner{\E_X \varphi(X)}{\E_Y \varphi(Y)}
+= \E_{X, Y} k(X, Y)
+\approx \frac{1}{m^2} \sum_{i,j} k(X_i, Y_j)
    = \frac{1}{m^2} \one\tp \Kxy \one
 \\
 \inner{\muX}{\muX}
-&\approx \frac{1}{m (m-1)} \sum_{i \ne j} k(X_i, X_j)
+= \inner{\E_X \varphi(X)}{\E_{X'} \varphi(X')}
+= \E_{X, X'} k(X, X')
+\approx \frac{1}{m (m-1)} \sum_{i \ne j} k(X_i, X_j)
    = \frac{1}{m (m-1)} \one\tp \Ktxx \one
-.\end{align*}
+.\end{gather*}
 It is also important to do so for products of these terms:
-this is the bias present in the publication version of \textcite{opt-mmd}.
-That is:
+this caused the bias present in the publication version of \textcite{opt-mmd}.
+For instance,
+the square of an unbiased estimator for $\inner{\muX}{\muY}$
+is not unbiased for $\inner{\muX}{\muY}^2$,
+but the following is:
 \begin{align*}
      \inner{\muX}{\muY}^2
   &= \inner{\muX}{\muY} \inner{\muX}{\muY}
@@ -748,7 +761,7 @@ We also need some similar terms with $\varphi(X)$ shared:
     \E\left[ \inner{\varphi(X)}{\muX} \inner{\varphi(X)}{\muY} \right]
   &\approx
     \frac{1}{m^2 (m-1)} \sum_i \sum_{j \ne i} \sum_{\ell} k(X_i, X_j) k(X_i, Y_\ell)
-\\&= \frac{1}{m^2 (m-1)} \sum_{i j \ell} (\Ktxx)_{ij} \Kxy
+\\&= \frac{1}{m^2 (m-1)} \sum_{i j \ell} (\Ktxx)_{ij} (\Kxy)_{i \ell}
 \\&= \frac{1}{m^2 (m-1)} \one\tp \Ktxx \Kxy \one
 ,\end{align*}
 and
@@ -767,26 +780,6 @@ Finally, we need a few terms that don't involve any mean embeddings:
 \\
     \E\left[ k(X, Y)^2 \right]
   &\approx \frac{1}{m^2} \norm{\Kxy}_F^2
-\\
-    \E\left[ k(X, Y) k(X, Z) \right]
-  &\approx \frac{1}{m^3} \sum_{i j \ell} k(X_i, Y_j) k(X_i, Z_j)
-   = \frac{1}{m^3} \one\tp \Kxy\tp \Kxz \one
-\\
-    \E\left[ k(X, Y_1) k(X, Y_2) \right]
-  &\approx \frac{1}{m^2 (m-1)} \sum_{i j} \sum_{\ell \ne j} k(X_i, Y_j) k(X_i, Y_\ell)
-\\&= \frac{1}{m^2 (m-1)} \left[
-    \sum_{ij\ell} (\Kxy)_{i j} (\Kxy)_{i \ell}
-  - \sum_{ij} (\Kxy)_{i j}^2
-  \right]
-\\&= \frac{1}{m^2 (m-1)} \left[
-    \norm{\Kxy \one}^2
-  - \norm{\Kxy}_F^2
-  \right]
-\\
-    \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
-  &\approx \frac{1}{m^2 (m-1)} \sum_{i j} \sum_{\ell \ne j} k(X_i, Y_j) k(Y_j, Y_\ell)
-\\&= \frac{1}{m^2 (m-1)} \sum_{ij\ell} (\Kxy)_{ij} (\Ktyy)_{j \ell}
-\\&= \frac{1}{m^2 (m-1)} \one\tp \Kxy \Ktyy \one
 .\end{align*}
 
 \subsection{Final MMD variance estimator}
@@ -817,20 +810,27 @@ Plugging in the estimators of \cref{sec:sub-estimators}, we at last get an estim
 \begin{align*}
     \hat V_m
   &=
-    \frac{4}{m^2 (m-1)^2} \left[ \norm{\Ktxx \one}^2 + \norm{\Ktyy \one}^2 - \norm{\Ktxx}_F^2 - \norm{\Ktyy}_F^2 \right]
+  \frac{4}{m^2 (m-1)^2} \left[
+      \norm{\Ktxx \one}^2
+    + \norm{\Ktyy \one}^2
+    - \norm{\Ktxx}_F^2
+    - \norm{\Ktyy}_F^2
+    \right]
 \\&\qquad
   + \frac{2 (2 m - 3)}{(m)_2 (m)_4} \left[
-  - \left(\one\tp \Ktxx \one \right)^2
-  - \left(\one\tp \Ktyy \one \right)^2
-  + 4 \norm{\Ktxx \one}^2
-  + 4 \norm{\Ktyy \one}^2
-  - 2 \norm{\Ktxx}_F^2
-  - 2 \norm{\Ktyy}_F^2
-  \right]
+    - \left(\one\tp \Ktxx \one \right)^2
+    - \left(\one\tp \Ktyy \one \right)^2
+    + 4 \norm{\Ktxx \one}^2
+    + 4 \norm{\Ktyy \one}^2
+    - 2 \norm{\Ktxx}_F^2
+    - 2 \norm{\Ktyy}_F^2
+    \right]
 \\&\qquad
   + \frac{4 (m-2)}{m^3 (m-1)^2} \left(
-      \norm{\Kxy \one}^2 - \norm{\Kxy}_F^2
-    + \norm{\Kxy\tp \one}^2 - \norm{\Kxy}_F^2
+      \norm{\Kxy \one}^2
+    - \norm{\Kxy}_F^2
+    + \norm{\Kxy\tp \one}^2
+    - \norm{\Kxy}_F^2
     \right)
 \\&\qquad
   + \frac{4 (2 m - 3)}{m^3 (m-1)^3} \left[
@@ -841,12 +841,21 @@ Plugging in the estimators of \cref{sec:sub-estimators}, we at last get an estim
   \right]
 \\&\qquad
   - \frac{8}{m^3 (m-1)} \one\tp \Ktxx \Kxy \one
-  + \frac{8}{m^2 (m)_3} \left[ \one\tp \Ktxx \one \one\tp \Kxy \one - 2 \, \one\tp \Ktxx \Kxy \one \right]
+  + \frac{8}{m^2 (m)_3} \left[
+      \one\tp \Ktxx \one \one\tp \Kxy \one
+    - 2 \, \one\tp \Ktxx \Kxy \one
+    \right]
 \\&\qquad
   - \frac{8}{m^3 (m-1)} \one\tp \Ktyy \Kxy\tp \one
-  + \frac{8}{m^2 (m)_3} \left[ \one\tp \Ktyy \one \one\tp \Kxy \one - 2 \, \one\tp \Ktyy \Kxy\tp \one \right]
+  + \frac{8}{m^2 (m)_3} \left[
+      \one\tp \Ktyy \one \one\tp \Kxy \one
+    - 2 \, \one\tp \Ktyy \Kxy\tp \one
+    \right]
 \\&\qquad
-  + \frac{2}{m^2 (m-1)^2} \left[ \norm{\Ktxx}_F^2 + \norm{\Ktyy}_F^2 \right]
+  + \frac{2}{m^2 (m-1)^2} \left[
+      \norm{\Ktxx}_F^2
+    + \norm{\Ktyy}_F^2
+    \right]
   + \frac{4}{m^3 (m-1)} \norm{\Kxy}_F^2
 ,\end{align*}
 which simplifies to
@@ -855,7 +864,7 @@ which simplifies to
     \hat V_m
   &=
     \frac{4}{(m)_4} \left[ \norm{\Ktxx \one}^2 + \norm{\Ktyy \one}^2 \right]
-  + \frac{4 (3m-5)}{m^3 (m-1)^2} \left[ \norm{\Kxy \one}^2 + \norm*{\Kxy\tp \one}^2 \right]
+  + \frac{4 (m^2 - m - 1)}{m^3 (m-1)^2} \left[ \norm{\Kxy \one}^2 + \norm*{\Kxy\tp \one}^2 \right]
 \\&\qquad
   - \frac{8}{m^2 (m^2 - 3 m + 2)} \left[ \one\tp \Ktxx \Kxy \one + \one\tp \Ktyy \Kxy\tp \one \right]
 \\&\qquad
@@ -908,9 +917,9 @@ is
     + \inner{\muX}{\muZ} \inner{\muZ}{\muZ}
   \right]
 \\&\qquad
-  - \frac{8(m-2)}{m (m-1)} \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
+  - \frac{8}{m} \E\left[ \inner{\varphi(X)}{\muY} \inner{\varphi(X)}{\muZ} \right]
 \\&\qquad
-  - \frac{8(m-2)}{m (m-1)} \left(
+  - \frac{8}{m} \left(
       \E\left[ \inner{\varphi(Y)}{\muX} \inner{\varphi(Y)}{\muY} \right]
     + \E\left[ \inner{\varphi(Z)}{\muX} \inner{\varphi(Z)}{\muZ} \right]
     \right)
@@ -922,14 +931,6 @@ is
   + \frac{2}{m (m-1)} \left(
       \E\left[ k(Y_1, Y_2)^2 \right]
     + \E\left[ k(Z_1, Z_2)^2 \right]
-    \right)
-\\&\qquad
-  - \frac{8}{m (m-1)} \left(
-      \E\left[ k(X, Y) k(X, Z) \right]
-    \right)
-  - \frac{8}{m (m-1)} \left(
-      \E\left[ k(X, Y_1) k(Y_1, Y_2) \right]
-    + \E\left[ k(X, Z_1) k(Z_1, Z_2) \right]
     \right)
 ,\end{align*}
 which gives us the estimator
@@ -985,9 +986,9 @@ which gives us the estimator
     - 2 \, \one\tp \Ktzz \Kxz\tp \one
   \right]
 \\&\qquad
-  - \frac{8(m-2)}{m^4 (m-1)} \one\tp \Kxy\tp \Kxz \one
+  - \frac{8}{m^4} \one\tp \Kxy\tp \Kxz \one
 \\&\qquad
-  - \frac{8(m-2)}{m^3 (m-1)^2} \left[
+  - \frac{8}{m^3 (m-1)} \left[
       \one\tp \Ktyy \Kxy\tp \one
     + \one\tp \Ktzz \Kxz\tp \one
     \right]
@@ -999,12 +1000,6 @@ which gives us the estimator
   + \frac{2}{m^2 (m-1)^2} \left(
       \norm{\Ktyy}_F^2
     + \norm{\Ktzz}_F^2
-    \right)
-\\&\qquad
-  - \frac{8}{m^4 (m-1)} \one\tp \Kxy\tp \Kxz \one
-  - \frac{8}{m (m-1)} \left(
-      \one\tp \Kxy \Ktyy \one
-    + \one\tp \Kxz \Ktzz \one
     \right)
 .\end{align*}
 Combining like terms, we obtain
@@ -1023,10 +1018,9 @@ Combining like terms, we obtain
       \norm{\Ktyy \one}^2
     + \norm{\Ktzz \one}^2
     \right]
-\\&\qquad
   - \frac{8}{m^3 (m-1)} \one\tp \Kxy\tp \Kxz \one
 \\&\qquad
-  - \frac{8 (m^4 - 3 m^3 + 3 m^2 - 2m + 2)}{m^3 (m-1)^2 (m-2)} \left[
+  - \frac{8}{m^2 (m^2 - 3m + 2)} \left[
       \one\tp \Ktyy \Kxy\tp \one
     + \one\tp \Ktzz \Kxz\tp \one
     \right]
