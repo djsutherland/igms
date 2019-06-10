@@ -172,7 +172,7 @@ def make_featurizer(model, kind="through", input_scale=(-1, 1)):
     return nn.Sequential(norm_layer, featurizer)
 
 
-def load_smoothing_imagenet_model(noise_level):
+def load_smoothing_imagenet_model(noise_level, **load_args):
     import tarfile
 
     # load their checkpoint
@@ -189,7 +189,7 @@ def load_smoothing_imagenet_model(noise_level):
 
     with tarfile.open(os.path.join(folder, tar_fn), "r") as tar:
         fn = f"models/imagenet/resnet50/noise_{noise_level:.2f}/checkpoint.pth.tar"
-        checkpoint = torch.load(tar.extractfile(fn))
+        checkpoint = torch.load(tar.extractfile(fn), **load_args)
 
     # they checkpointed the model inside Sequential(DataParallel(model))
     def rewrite(k):
@@ -204,7 +204,7 @@ def load_smoothing_imagenet_model(noise_level):
     return model
 
 
-def load_featurizer(spec, input_scale=(-1, 1)):
+def load_featurizer(spec, input_scale=(-1, 1), **load_args):
     feats = []
     for subspec in spec.split("+"):
         parts = subspec.split(":")
@@ -214,7 +214,7 @@ def load_featurizer(spec, input_scale=(-1, 1)):
         model_name = parts.pop(0) if parts else "smoothing"
         if model_name == "smoothing":
             noise_level = float(parts.pop(0)) if parts else 0.25
-            model = load_smoothing_imagenet_model(noise_level=noise_level)
+            model = load_smoothing_imagenet_model(noise_level=noise_level, **load_args)
         else:
             if not hasattr(models, model_name):
                 raise ValueError(f"unknown model type {model_name}")
