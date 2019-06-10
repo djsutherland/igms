@@ -72,6 +72,9 @@ def mmd2_permutations(kernel_pair, estimator=Estimator.U_STAT, permutations=500)
 
 
 def mmd2_and_variance(kernel_pair, estimator=Estimator.U_STAT):
+    """
+    Estimate MMD variance with estimator from https://arxiv.org/abs/1906.02104.
+    """
     if estimator != Estimator.U_STAT:
         warnings.warn(
             "Computing asymptotic variance for U-statistic estimator, "
@@ -120,8 +123,7 @@ def diff_mmd2_and_variance(kernel_pair_XY, kernel_pair_XZ, estimator=Estimator.U
     assuming distributions of X, Y, Z are all distinct. Uses the U-statistic
     estimator and its asymptotic variance.
 
-    Based on https://arxiv.org/abs/1511.04581v4, but with some slight bias
-    corrections: see notes/mmd-variance.pdf.
+    Estimator from https://arxiv.org/abs/1906.02104.
     """
 
     if estimator != Estimator.U_STAT:
