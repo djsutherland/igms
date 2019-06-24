@@ -363,7 +363,7 @@ class LinearAndSquare(LazyKernelPair):
         return (A * A,)
 
     def _compute(self, A, B, A_squared, B_squared):
-        return A @ A.t() + self.w * (A_squared @ B_squared.t())
+        return A @ B.t() + self.w * (A_squared @ B_squared.t())
 
 
 @register
