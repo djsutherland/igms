@@ -281,7 +281,7 @@ class LazyKernelPair:
     @_cache
     def YY(self):
         if self._storage == _StorageMode.TO_SELF:
-            return self.XX()
+            return self.XX
         elif self._storage == _StorageMode.STACKED:
             res = self._compute_stacked()[self.n_X :, self.n_X :]
         else:
@@ -293,7 +293,7 @@ class LazyKernelPair:
     @_cache
     def XY(self):
         if self._storage == _StorageMode.TO_SELF:
-            return self.XX()
+            return self.XX
         elif self._storage == _StorageMode.STACKED:
             res = self._compute_stacked()[: self.n_X, self.n_X :]
         else:
