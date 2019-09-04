@@ -17,12 +17,10 @@ def _cache(f):
 
     @wraps(f)
     def wrapper(self):
-        try:
+        if cache_name in self._cache:
             return self._cache[cache_name]
-        except KeyError:
-            val = f(self)
-            self._cache[cache_name] = val
-            return val
+        self._cache[cache_name] = val = f(self)
+        return val
 
     return wrapper
 
@@ -69,7 +67,7 @@ class Matrix:
 
     @_cache
     def sq_sum(self):
-        flat = self.mat.view(-1)
+        flat = self.mat.contiguous().view(-1)
         return flat @ flat
 
     def __repr__(self):

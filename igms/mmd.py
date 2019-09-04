@@ -28,7 +28,7 @@ def mmd2(kernel_pair, estimator=Estimator.UNBIASED):
 
 
 def mmd2_permutations(kernel_pair, estimator=Estimator.U_STAT, permutations=500):
-    K = kernel_pair.joint()
+    K = kernel_pair.joint().mat
     n_X = kernel_pair.n_X
     n_Y = kernel_pair.n_Y
     n = n_X + n_Y
