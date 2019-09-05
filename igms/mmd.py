@@ -11,10 +11,12 @@ class Estimator(enum.Enum):
     U_STAT = U_STATISTIC = enum.auto()
 
 
-def mmd2(kernel_pair, estimator=Estimator.UNBIASED):
-    XX = kernel_pair.XX
-    XY = kernel_pair.XY
-    YY = kernel_pair.YY
+def mmd2(K, estimator=Estimator.UNBIASED, inds=(0, 1)):
+    i, j = inds
+
+    XX = K.matrix(i, i)
+    XY = K.matrix(i, j)
+    YY = K.matrix(j, j)
 
     if estimator == Estimator.BIASED:
         return XX.mean() + YY.mean() - 2 * XY.mean()
@@ -27,10 +29,11 @@ def mmd2(kernel_pair, estimator=Estimator.UNBIASED):
         raise ValueError(f"unknown estimator type '{estimator}'")
 
 
-def mmd2_permutations(kernel_pair, estimator=Estimator.U_STAT, permutations=500):
-    K = kernel_pair.joint().mat
-    n_X = kernel_pair.n_X
-    n_Y = kernel_pair.n_Y
+def mmd2_permutations(K, estimator=Estimator.U_STAT, permutations=500, inds=(0, 1)):
+    i, j = inds
+    n_X = K.n(i)
+    n_Y = K.n(j)
+    K = K.joint(i, j)
     n = n_X + n_Y
 
     if estimator == Estimator.U_STAT:
@@ -71,7 +74,7 @@ def mmd2_permutations(kernel_pair, estimator=Estimator.U_STAT, permutations=500)
     return est.item(), p_val.item(), rest
 
 
-def mmd2_and_variance(kernel_pair, estimator=Estimator.U_STAT):
+def mmd2_and_variance(K, estimator=Estimator.U_STAT, inds=(0, 1)):
     """
     Estimate MMD variance with estimator from https://arxiv.org/abs/1906.02104.
     """
@@ -80,14 +83,15 @@ def mmd2_and_variance(kernel_pair, estimator=Estimator.U_STAT):
             "Computing asymptotic variance for U-statistic estimator, "
             f"but using {estimator}."
         )
-    assert kernel_pair.n_X == kernel_pair.n_Y
-    m = kernel_pair.n_X
-    XX = kernel_pair.XX
-    XY = kernel_pair.XY
-    YY = kernel_pair.YY
+    i, j = inds
+    m = K.n(i)
+    assert K.n(j) == m
+    XX = K.matrix(i, i)
+    XY = K.matrix(i, j)
+    YY = K.matrix(j, j)
 
     # we're caching anyway
-    mmd_est = mmd2(kernel_pair, estimator=estimator)
+    mmd_est = mmd2(K, estimator=estimator, inds=inds)
 
     mm = m * m
     mmm = mm * m
@@ -117,7 +121,7 @@ def mmd2_and_variance(kernel_pair, estimator=Estimator.U_STAT):
     return mmd_est, var_est
 
 
-def diff_mmd2_and_variance(kernel_pair_XY, kernel_pair_XZ, estimator=Estimator.U_STAT):
+def diff_mmd2_and_variance(K, estimator=Estimator.U_STAT, inds=(0, 1, 2)):
     """
     Core components of a test for whether MMD(X, Y) < MMD(X, Z),
     assuming distributions of X, Y, Z are all distinct. Uses the U-statistic
@@ -132,31 +136,18 @@ def diff_mmd2_and_variance(kernel_pair_XY, kernel_pair_XZ, estimator=Estimator.U
             f"but using {estimator}."
         )
 
-    if type(kernel_pair_XY) != type(kernel_pair_XZ):
-        warnings.warn(
-            f"XY is {type(kernel_pair_XY)} but XZ is {type(kernel_pair_XZ)}; "
-            "should be the same kernel...."
-        )
-        # TODO: check parameters also
-        # ...and check that X is the same?
-        # share _precompute_X between them?
+    i, j, k = inds
+    m = K.n(i)
+    assert m == K.n(j) == K.n(k)
 
-    kernel_pair_XZ = kernel_pair_XZ
-    assert (
-        kernel_pair_XY.n_X
-        == kernel_pair_XY.n_Y
-        == kernel_pair_XZ.n_X
-        == kernel_pair_XZ.n_Y
-    )
-
-    mmd2_XY = mmd2(kernel_pair_XY, estimator=estimator)
-    mmd2_XZ = mmd2(kernel_pair_XZ, estimator=estimator)
+    mmd2_XY = mmd2(K, estimator=estimator, inds=(i, j))
+    mmd2_XZ = mmd2(K, estimator=estimator, inds=(i, k))
     diff_est = mmd2_XY - mmd2_XZ
 
-    XY = kernel_pair_XY.XY
-    XZ = kernel_pair_XZ.XY
-    YY = kernel_pair_XY.YY
-    ZZ = kernel_pair_XZ.YY
+    XY = K.matrix(i, j)
+    XZ = K.matrix(i, k)
+    YY = K.matrix(j, j)
+    ZZ = K.matrix(k, k)
 
     m = XY.m
     mm = m * m
