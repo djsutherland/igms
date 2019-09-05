@@ -19,6 +19,18 @@ def pil(x, **kwargs):
     return Image.fromarray(array)
 
 
+def as_parameter(X, requires_grad=None, **kwargs):
+    if X is None:
+        return None
+    elif isinstance(X, torch.nn.Parameter):
+        return X
+    else:
+        X = torch.as_tensor(X, **kwargs)
+        if requires_grad is None:
+            requires_grad = X.requires_grad
+        return torch.nn.Parameter(X, requires_grad=requires_grad)
+
+
 def as_tensors(X, *rest):
     "Calls as_tensor on a bunch of args, all of the first's device and dtype."
     X = torch.as_tensor(X)

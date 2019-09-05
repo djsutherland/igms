@@ -4,12 +4,11 @@ matrices, allowing for various sums / means / etc used by MMD-related estimators
 """
 from functools import partial, wraps
 import inspect
-from inspect import Parameter
 
 import numpy as np
 import torch
 
-from .utils import as_tensors, floats, float_or_none, floats_or_none
+from .utils import as_parameter, as_tensors, floats, float_or_none, floats_or_none
 
 
 def _cache(f):
@@ -194,8 +193,13 @@ def as_matrix(M, const_diagonal=False, symmetric=False):
 # A function to choose kernel classes from a string spec.
 
 _registry = {}
-_skip_names = frozenset(("X", "Y", "n_X"))
-_skip_types = frozenset((Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD))
+_bad_kinds = frozenset(
+    (
+        inspect.Parameter.VAR_POSITIONAL,
+        inspect.Parameter.VAR_KEYWORD,
+        inspect.Parameter.POSITIONAL_ONLY,
+    )
+)
 
 
 def register(original_cls=None, *, name=None):
@@ -203,10 +207,12 @@ def register(original_cls=None, *, name=None):
         sig = inspect.signature(cls)
         arg_info = []
         for kw, param in sig.parameters.items():
-            if param.name in _skip_names or param.kind in _skip_types:
-                continue
-            parser = param.annotation
-            arg_info.append((kw, str if parser is Parameter.empty else parser))
+            if param.kind in _bad_kinds:
+                raise TypeError(
+                    f"Can't register {cls}: argument {kw} has bad kind {param.kind}"
+                )
+            fn = param.annotation
+            arg_info.append((kw, str if fn is inspect.Parameter.empty else fn))
 
         _registry[(name or cls.__name__).lower()] = (cls, arg_info)
         return cls
@@ -226,56 +232,12 @@ def pick_kernel(spec):
 
 
 ################################################################################
-# Kernel base class
-
-# TODO: could make this more like a typical Module by making the class
-#       basically just set up the kernel function arguments,
-#       then return this class as results when you call it?
-_name_map = {"X": 0, "Y": 1, "Z": 2}
+# Kernel base class infrastructure
 
 
-class LazyKernel(torch.nn.Module):
-    """
-    Base class that allows computing kernel matrices among a bunch of datasets,
-    only computing the matrices when we use them.
-
-    Constructor arguments:
-        - A bunch of matrices we'll compute the kernel among.
-          2+d tensors, with all dimensions after the first agreeing,
-          or else the special value None, meaning to use the first entry X.
-          (This is more efficient than passing the same tensor again.)
-
-    Access the results with:
-      - K[0, 1] to get the Tensor between parts 0 and 1.
-      - K.XX, K.XY, K.ZY, etc: shortcuts, with X meaning 0, Y 1, Z 2.
-      - K.matrix(0, 1) or K.XY_m: returns a Matrix subclass.
-    """
-
-    def __init__(self, X, *rest):
-        super().__init__()
-        self._cache = {}
-        if not hasattr(self, "const_diagonal"):
-            self.const_diagonal = False
-
-        # want to use pytorch buffer for parts
-        # but can't assign a list to those, so munge some names
-        X, *rest = as_tensors(X, *rest)
-        if len(X.shape) < 2:
-            raise ValueError(
-                "LazyKernel expects inputs to be at least 2d. "
-                "If your data is 1d, make it [n, 1] with X[:, np.newaxis]."
-            )
-
-        self.register_buffer("_part_0", X)
-        self.n_parts = 1
-        for p in rest:
-            self.append_part(p)
-
-    def __repr__(self):
-        return f"<{type(self).__name__}({', '.join(str(n) for n in self.ns)})>"
-
-    ############################################################################
-    # The main interface to compute kernels
+class Kernel(torch.nn.Module):
+    # Note that _compute / _precompute functions should *not* modify
+    # anything on self!
 
     def _compute(self, A, B):
         """
@@ -309,8 +271,72 @@ class LazyKernel(torch.nn.Module):
         """
         return ()
 
+    def forward(self, *parts):
+        """
+        Compute the kernel on the given matrices. Usually you don't call this
+        directly; instead use the generic pytorch __call__ method.
+
+        Parts should be tensors representing objects you're computing the
+        kernel among, so that eg a tensor of shape [n, 3] would represent
+        n 3-dimensional objects.
+
+        Returns a LazyKernelResult.
+        """
+        return LazyKernelResult(self, parts)
+
+    def __repr__(self):
+        return f"""<{type(self).__qualname__}({", ".join(
+            f'''{n}={v.detach().cpu().item() if v.numel() == 1
+                     else f'<shape {list(v.shape)}>'}'''
+            for n, v in self._parameters.items()
+        )})"""
+
+
+_name_map = {"X": 0, "Y": 1, "Z": 2}
+
+
+class LazyKernelResult:
+    """
+    Class that allows computing kernel matrices among a bunch of datasets,
+    only computing the matrices when we use them.
+
+    You normally won't construct this object directly, but instead
+    get it from LazyKernel.__call__.
+
+    Access the results with:
+      - K[0, 1] to get the Tensor between parts 0 and 1.
+      - K.XX, K.XY, K.ZY, etc: shortcuts, with X meaning 0, Y 1, Z 2.
+      - K.matrix(0, 1) or K.XY_m: returns a Matrix subclass.
+    """
+
+    def __init__(self, kernel, parts):
+        super().__init__()
+        self.kernel = kernel
+        self._cache = {}
+        if not hasattr(self, "const_diagonal"):
+            self.const_diagonal = False
+
+        self._parts = as_tensors(*parts)
+        shp = self.X.shape[1:]
+        for p in self.parts[1:]:
+            if p.shape is not None and p.shape[1:] != shp:
+                raise ValueError(
+                    f"inconsistent shapes: expected batch of {shp}, got {p.shape}"
+                )
+
+    def __repr__(self):
+        return (
+            f"<LazyKernelResult({self.kernel}, {', '.join(str(n) for n in self.ns)})>"
+        )
+
     ############################################################################
     # Stuff that does the work of computing kernels
+
+    def _compute(self, *args, **kwargs):
+        return self.kernel._compute(*args, **kwargs)
+
+    def _precompute(self, *args, **kwargs):
+        return self.kernel._precompute(*args, **kwargs)
 
     @_cache
     def _precompute_i(self, i):
@@ -372,33 +398,37 @@ class LazyKernel(torch.nn.Module):
     ############################################################################
     # Helpers to access things more nicely
 
-    def __getattr__(self, name):
-        # self.X, self.Y, self.Z
-        if name in _name_map:
-            i = _name_map[name]
-            if i < self.n_parts:
-                return self.part(i)
-            else:
-                raise AttributeError(f"have {self.n_parts} parts, asked for {i}")
+    # used to do this with __getattr__ but it's kind of annoying
+    X = property(lambda self: self.part(0))
+    Y = property(lambda self: self.part(1))
+    Z = property(lambda self: self.part(2))
 
-        # self.XX, self.XY, self.YZ, etc; also self.XX_m
-        ret_matrix = False
-        if len(name) == 4 and name.endswith("_m"):
-            ret_matrix = True
-            name = name[:2]
+    XX = property(lambda self: self[0, 0])
+    XY = property(lambda self: self[0, 1])
+    XZ = property(lambda self: self[0, 2])
+    YX = property(lambda self: self[1, 0])
+    YY = property(lambda self: self[1, 1])
+    YZ = property(lambda self: self[1, 2])
+    ZX = property(lambda self: self[2, 0])
+    ZY = property(lambda self: self[2, 1])
+    ZZ = property(lambda self: self[2, 2])
 
-        if len(name) == 2:
-            i = _name_map.get(name[0], np.inf)
-            j = _name_map.get(name[1], np.inf)
-            if i < self.n_parts and j < self.n_parts:
-                return self.matrix(i, j) if ret_matrix else self[i, j]
-            else:
-                raise AttributeError(f"have {self.n_parts} parts, asked for {i}, {j}")
+    XX_m = property(lambda self: self.matrix(0, 0))
+    XY_m = property(lambda self: self.matrix(0, 1))
+    XZ_m = property(lambda self: self.matrix(0, 2))
+    YX_m = property(lambda self: self.matrix(1, 0))
+    YY_m = property(lambda self: self.matrix(1, 1))
+    YZ_m = property(lambda self: self.matrix(1, 2))
+    ZX_m = property(lambda self: self.matrix(2, 0))
+    ZY_m = property(lambda self: self.matrix(2, 1))
+    ZZ_m = property(lambda self: self.matrix(2, 2))
 
-        return super().__getattr__(name)
+    n_parts = property(lambda self: len(self._parts))
 
     def _part(self, i):
-        return self._buffers[f"_part_{i}"]
+        if i >= self.n_parts:
+            raise AttributeError(f"have {self.n_parts} parts, asked for {i}")
+        return self._parts[i]
 
     def part(self, i):
         p = self._part(i)
@@ -406,14 +436,14 @@ class LazyKernel(torch.nn.Module):
 
     @property
     def parts(self):
-        return [self.part(i) for i in range(self.n_parts)]
+        return tuple(self.part(i) for i in range(self.n_parts))
 
     def n(self, i):
         return self.part(i).shape[0]
 
     @property
     def ns(self):
-        return [self.n(i) for i in range(self.n_parts)]
+        return tuple(self.n(i) for i in range(self.n_parts))
 
     ############################################################################
     # Stuff related to adding/removing data parts
@@ -431,21 +461,19 @@ class LazyKernel(torch.nn.Module):
         assert self.n_parts >= 2
         i = self.n_parts - 1
         self._invalidate_cache(i)
-        del self._buffers[f"_part_{i}"]
-        self.n_parts -= 1
+        self._parts.pop(-1)
 
     def change_part(self, i, new):
-        assert i < self.n_parts
+        assert i < len(self._parts)
         if new is not None and new.shape[1:] != self.X.shape[1:]:
             raise ValueError(f"X has shape {self.X.shape}, new entry has {new.shape}")
         self._invalidate_cache(i)
-        self._buffers[f"_part_{i}"] = new
+        self._parts[i] = new
 
     def append_part(self, new):
         if new is not None and new.shape[1:] != self.X.shape[1:]:
             raise ValueError(f"X has shape {self.X.shape}, new entry has {new.shape}")
-        self._buffers[f"_part_{self.n_parts}"] = new
-        self.n_parts += 1
+        self._parts.append(new)
 
     ############################################################################
     # PyTorch-related stuff
@@ -464,13 +492,6 @@ class LazyKernel(torch.nn.Module):
         kwargs.setdefault("dtype", self.dtype)
         return tuple(None if r is None else torch.as_tensor(r, **kwargs) for r in args)
 
-    def _apply(self, fn):  # used in to(), cuda(), etc
-        super()._apply(fn)
-        for key, val in self._cache.items():
-            if val is not None:
-                self._cache[key] = fn(val)
-        return self
-
     def __copy__(self):
         """
         Doesn't deep-copy the data tensors, but copies dictionaries so that
@@ -478,17 +499,19 @@ class LazyKernel(torch.nn.Module):
         """
         cls = self.__class__
         result = cls.__new__(cls)
-        to_copy = {"_cache", "_buffers", "_parameters", "_modules"}
+        to_copy = {"_cache", "_parts"}
         for k, v in self.__dict__.items():
             result.__dict__[k] = v.copy() if k in to_copy else v
         return result
 
 
-class LazyKernelOnVectors(LazyKernel):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if len(self.X.shape) != 2:
+class KernelOnVectors(Kernel):
+    def forward(self, *parts, **kwargs):
+        parts = as_tensors(*parts)
+        if any(len(p.shape) != 2 for p in parts):
             raise ValueError(f"{type(self).__name__} expects 2d input tensors")
+
+        return super().forward(*parts, **kwargs)
 
 
 ################################################################################
@@ -496,7 +519,7 @@ class LazyKernelOnVectors(LazyKernel):
 
 
 @register
-class Linear(LazyKernelOnVectors):
+class Linear(KernelOnVectors):
     r"k(x, y) = <x, y>"
 
     def _compute(self, A, B):
@@ -504,7 +527,7 @@ class Linear(LazyKernelOnVectors):
 
 
 @register
-class Polynomial(LazyKernelOnVectors):
+class Polynomial(KernelOnVectors):
     r"""
     k(x, y) = (gamma <x, y> + coef0)^degree
 
@@ -512,25 +535,26 @@ class Polynomial(LazyKernelOnVectors):
     """
 
     def __init__(
-        self, X, *rest, degree: float = 3, gamma: float_or_none = None, coef0: float = 1
+        self, degree: float = 3, gamma: float_or_none = None, coef0: float = 1
     ):
-        super().__init__(X, *rest)
-        self.degree = degree
-        self.gamma = 1 / X.shape[1] if gamma is None else gamma
-        self.coef0 = coef0
+        super().__init__()
+        self.degree = as_parameter(degree)
+        self._gamma = as_parameter(gamma)
+        self.coef0 = as_parameter(coef0)
 
     def _compute(self, A, B):
+        gamma = 1 / A.shape[1] if self._gamma is None else self._gamma
         XY = A @ B.t()
-        return (self.gamma * XY + self.coef0) ** self.degree
+        return (gamma * XY + self.coef0) ** self.degree
 
 
 @register
-class LinearAndSquare(LazyKernelOnVectors):
+class LinearAndSquare(KernelOnVectors):
     r"k(x, y) = <x, y> + w <x^2, y^2>, with the squaring elementwise."
 
-    def __init__(self, *parts, w: float = 1):
-        super().__init__(*parts)
-        self.w = w
+    def __init__(self, w: float = 1):
+        super().__init__()
+        self.w = as_parameter(w)
 
     def _precompute(self, A):
         return (A * A,)
@@ -539,28 +563,38 @@ class LinearAndSquare(LazyKernelOnVectors):
         return A @ B.t() + self.w * (A_squared @ B_squared.t())
 
 
-@register
-class MixRBFDot(LazyKernelOnVectors):
-    r"""
-    k(x, y) = \sum_i wts[i] exp(- ||x - y||^2 / (2 * sigmas_sq[i])) + add_dot * <x, y>
-
-    wts=None (the default) uses 1/len(sigmas_sq) for each weight.
+class MixGeneralRBFDot(KernelOnVectors):
+    """
+    Base class for kernels which are a mixture of radial basis function
+    kernels and a linear component.
     """
 
     def __init__(
         self,
-        *parts,
-        sigmas_sq: floats = (1,),
+        lengthscales_sq: floats = (1,),
         wts: floats_or_none = None,
         add_dot: float = 0,
     ):
-        super().__init__(*parts)
-        self.sigmas_sq, self.wts = self.as_tensors(sigmas_sq, wts)
+        super().__init__()
+        self.lengthscales_sq = as_parameter(lengthscales_sq)
+        self.wts = as_parameter(wts)
         if wts is not None:
-            assert self.sigmas_sq.shape == self.wts.shape
-        self.add_dot = add_dot
-        if not add_dot:
-            self.const_diagonal = 1 if self.wts is None else self.wts.sum()
+            assert self.lengthscales_sq.shape == self.wts.shape
+        self.add_dot = as_parameter(add_dot)
+        self._value_at_0 = 1
+
+    @property
+    def adding_dot(self):
+        return self.add_dot.detach().cpu().item() != 0
+
+    @property
+    def const_diagonal(self):
+        if self.addding_dot:
+            return False
+        elif self.wts is None:
+            return self._value_at_0
+        else:
+            return self.wts.sum() * self._value_at_0
 
     def _precompute(self, A):
         return (torch.einsum("ij,ij->i", A, A),)
@@ -568,95 +602,103 @@ class MixRBFDot(LazyKernelOnVectors):
     def _compute(self, A, A_sqnorms, B, B_sqnorms):
         dot = A @ B.t()
         D2 = A_sqnorms[:, None] + B_sqnorms[None, :] - 2 * dot
-        K_parts = torch.exp(D2[None, :, :] / (-2 * self.sigmas_sq[:, None, None]))
+        K_parts = self._rbf_function(
+            D2[None, :, :] / self.lengthscales_sq[:, None, None]
+        )
         if self.wts is None:
             K = K_parts.mean(0)
         else:
             K = torch.einsum("sij,s->ij", K_parts, self.wts)
-        return (K + self.add_dot * dot) if self.add_dot else K
+        return (K + self.add_dot * dot) if self.adding_dot else K
+
+    def _rbf_function(self, normalized_D2):
+        raise NotImplementedError()
 
 
 @register
-class MixRBF(MixRBFDot):
-    r"""
-    k(x, y) = \sum_i wts[i] exp(- ||x - y||^2 / (2 * sigmas_sq[i]))
-    """
-
-    def __init__(self, *parts, sigmas_sq: floats = (1,), wts: floats_or_none = None):
-        super().__init__(*parts, sigmas_sq=sigmas_sq, wts=wts, add_dot=0)
-
-
-@register
-class RBF(MixRBFDot):
-    r"""
-    k(x, y) = exp(- ||x - y||^2 / (2 * sigma_sq))
-    """
-
-    def __init__(self, *parts, sigma_sq: float = 1):
-        super().__init__(*parts, sigmas_sq=(sigma_sq,), wts=None, add_dot=0)
-
-
-@register
-class MixRQDot(LazyKernelOnVectors):
+class MixSqExpDot(MixGeneralRBFDot):
     r"""
     k(x, y) =
-        \sum_i wts[i] (1 + ||x - y||^2 / (2 * alphas[i] * bws_sq[i]))^(-alphas[i])
+        \sum_i wts[i] exp(- ||x - y||^2 / (2 * lengthscales_sq[i]))
+        + add_dot * <x, y>
+
+    wts=None (the default) uses 1/len(lengthscales_sq) for each weight.
+    """
+
+    def _rbf_function(self, normalized_D2):
+        return torch.exp(-0.5 * normalized_D2)
+
+
+@register
+class MixSqExp(MixSqExpDot):
+    r"""
+    k(x, y) = \sum_i wts[i] exp(- ||x - y||^2 / (2 * lengthscales_sq[i]))
+    """
+
+    def __init__(self, lengthscales_sq: floats = (1,), wts: floats_or_none = None):
+        super().__init__(lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0)
+
+
+@register
+class SqExp(MixSqExpDot):
+    r"""
+    k(x, y) = exp(- ||x - y||^2 / (2 * lengthscale_sq))
+    """
+
+    def __init__(self, lengthscale_sq: float = 1):
+        super().__init__(lengthscales_sq=(lengthscale_sq,), wts=None, add_dot=0)
+
+
+@register
+class MixRQDot(MixGeneralRBFDot):
+    r"""
+    k(x, y) =
+        \sum_i wts[i]
+            (1 + ||x - y||^2 / (2 * alphas[i] * lengthscales_sq[i]))^(-alphas[i])
         + add_dot * <x, y>
     """
 
     def __init__(
         self,
-        *parts,
         alphas: floats = (1,),
-        bws_sq: floats = (1,),
+        lengthscales_sq: floats = (1,),
         wts: floats_or_none = None,
         add_dot: float = 0,
     ):
-        super().__init__(*parts)
-        self.alphas, self.bws_sq, self.wts = self.as_tensors(alphas, bws_sq, wts)
-        assert self.alphas.shape == self.bws_sq.shape
-        if wts is not None:
-            assert self.sigmas_sq.shape == self.wts.shape
-        self.add_dot = add_dot
-        if not add_dot:
-            self.const_diagonal = 1 if self.wts is None else self.wts.sum()
+        super().__init__(lengthscales_sq=lengthscales_sq, wts=wts, add_dot=add_dot)
 
-    def _precompute(self, A):
-        return (torch.einsum("ij,ij->i", A, A),)
+        self.alphas = as_parameter(alphas)
+        assert self.alphas.shape == self.lengthscales_sq.shape
 
-    def _compute(self, A, A_sqnorms, B, B_sqnorms):
-        dot = A @ B.t()
-        D2 = A_sqnorms[:, None] + B_sqnorms[None, :] - 2 * dot
+    def _rbf_function(self, normalized_D2):
         alphas = self.alphas[:, None, None]
-        bws_sq = self.bws_sq[:, None, None]
-        K_parts = (1 + D2[None, :, :] / (2 * alphas * bws_sq)) ** (-alphas)
-        if self.wts is None:
-            K = K_parts.mean(0)
-        else:
-            K = torch.einsum("sij,s->ij", K_parts, self.wts)
-        return (K + self.add_dot * dot) if self.add_dot else K
+        return (1 + normalized_D2 / (2 * alphas)) ** (-alphas)
 
 
 @register
 class MixRQ(MixRQDot):
     r"""
     k(x, y) =
-        \sum_i wts[i] (1 + ||x - y||^2 / (2 * alphas[i] * bws_sq[i]))^(-alphas[i])
+        \sum_i wts[i]
+            (1 + ||x - y||^2 / (2 * alphas[i] * lengthscales_sq[i]))^(-alphas[i])
     """
 
     def __init__(
         self,
-        *parts,
         alphas: floats = (1,),
-        bws_sq: floats = (1,),
+        lengthscales_sq: floats = (1,),
         wts: floats_or_none = None,
     ):
-        super().__init__(*parts, alphas=alphas, bws_sq=bws_sq, wts=wts, add_dot=0)
+        super().__init__(
+            alphas=alphas, lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0
+        )
 
 
 @register
 class RQ(MixRQDot):
-    r"k(x, y) = (1 + ||x - y||^2 / (2 * alpha * bw_sq))^(-alpha)"
+    r"k(x, y) = (1 + ||x - y||^2 / (2 * alpha * lengthscale_sq))^(-alpha)"
 
-    def __init__(self, *parts, alpha: float = 1, bw_sq: float = 1):
-        super().__init__(*parts, alphas=(alpha,), bws_sq=(bw_sq,), wts=None, add_dot=0)
+    def __init__(self, alpha: float = 1, lengthscale_sq: float = 1):
+        super().__init__(
+            alphas=(alpha,), lengthscales_sq=(lengthscale_sq,), wts=None, add_dot=0
+        )
