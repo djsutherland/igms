@@ -37,7 +37,7 @@ def mmd2(K, estimator=Estimator.UNBIASED, inds=(0, 1)):
         raise ValueError(f"unknown estimator type '{estimator}'")
 
 
-def pairwise_mmd2s(K, estimator=Estimator.UNBIASED, use_joint=True):
+def pairwise_mmd2s(K, estimator=Estimator.UNBIASED, use_joint=True, inds=None):
     """
     Computes the matrix of all pairwise mmd2s for the given LazyKernelResult.
 
@@ -47,12 +47,15 @@ def pairwise_mmd2s(K, estimator=Estimator.UNBIASED, use_joint=True):
     For unbiased estimators, the diagonal will almost always be negative.
     You can use utils.fill_diagonal(est, 0) if you want.
     """
+    if inds is None:
+        inds = range(K.n_parts)
+
     if not use_joint:
         return torch.stack(
             [
                 mmd2(K, estimator=estimator, inds=(i, j))
-                for i in range(K.n_parts)
-                for j in range(K.n_parts)
+                for i in inds
+                for j in inds
             ],
             0,
         ).reshape(K.n_parts, K.n_parts)
@@ -66,7 +69,7 @@ def pairwise_mmd2s(K, estimator=Estimator.UNBIASED, use_joint=True):
             "haven't implemented u-statistic est with use_joint=True"
         )
 
-    joint = K.joint()
+    joint = K.joint(*inds)
 
     # probably a more efficient way to do this
     wts = joint.new_zeros(K.n_parts, joint.shape[0])
