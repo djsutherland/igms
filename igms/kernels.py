@@ -535,7 +535,7 @@ class Polynomial(KernelOnVectors):
     """
 
     def __init__(
-        self, degree: float = 3, gamma: float_or_none = None, coef0: float = 1
+        self, degree: float = 3.0, gamma: float_or_none = None, coef0: float = 1.0
     ):
         super().__init__()
         self.degree = as_parameter(degree)
@@ -552,7 +552,7 @@ class Polynomial(KernelOnVectors):
 class LinearAndSquare(KernelOnVectors):
     r"k(x, y) = <x, y> + w <x^2, y^2>, with the squaring elementwise."
 
-    def __init__(self, w: float = 1):
+    def __init__(self, w: float = 1.0):
         super().__init__()
         self.w = as_parameter(w)
 
@@ -571,9 +571,9 @@ class MixGeneralRBFDot(KernelOnVectors):
 
     def __init__(
         self,
-        lengthscales_sq: floats = (1,),
+        lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
-        add_dot: float = 0,
+        add_dot: float = 0.0,
     ):
         super().__init__()
         self.lengthscales_sq = as_parameter(lengthscales_sq)
@@ -635,7 +635,7 @@ class MixSqExp(MixSqExpDot):
     k(x, y) = \sum_i wts[i] exp(- ||x - y||^2 / (2 * lengthscales_sq[i]))
     """
 
-    def __init__(self, lengthscales_sq: floats = (1,), wts: floats_or_none = None):
+    def __init__(self, lengthscales_sq: floats = (1.0,), wts: floats_or_none = None):
         super().__init__(lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0)
 
 
@@ -645,7 +645,7 @@ class SqExp(MixSqExpDot):
     k(x, y) = exp(- ||x - y||^2 / (2 * lengthscale_sq))
     """
 
-    def __init__(self, lengthscale_sq: float = 1):
+    def __init__(self, lengthscale_sq: float = 1.0):
         super().__init__(lengthscales_sq=(lengthscale_sq,), wts=None, add_dot=0)
 
 
@@ -660,8 +660,8 @@ class MixRQDot(MixGeneralRBFDot):
 
     def __init__(
         self,
-        alphas: floats = (1,),
-        lengthscales_sq: floats = (1,),
+        alphas: floats = (1.0,),
+        lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
         add_dot: float = 0,
     ):
@@ -685,8 +685,8 @@ class MixRQ(MixRQDot):
 
     def __init__(
         self,
-        alphas: floats = (1,),
-        lengthscales_sq: floats = (1,),
+        alphas: floats = (1.0,),
+        lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
     ):
         super().__init__(
@@ -698,7 +698,7 @@ class MixRQ(MixRQDot):
 class RQ(MixRQDot):
     r"k(x, y) = (1 + ||x - y||^2 / (2 * alpha * lengthscale_sq))^(-alpha)"
 
-    def __init__(self, alpha: float = 1, lengthscale_sq: float = 1):
+    def __init__(self, alpha: float = 1.0, lengthscale_sq: float = 1.0):
         super().__init__(
             alphas=(alpha,), lengthscales_sq=(lengthscale_sq,), wts=None, add_dot=0
         )

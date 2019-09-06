@@ -19,6 +19,23 @@ def pil(x, **kwargs):
     return Image.fromarray(array)
 
 
+def fill_diagonal(X, val, inplace=None):
+    # there's gotta be a better way to do this....
+    if inplace is None:
+        inplace = not X.requires_grad
+
+    if inplace:
+        if hasattr(X, "fill_diagonal_"):  # pytorch 1.2
+            X.fill_diagonal_(val)
+            return X
+        else:
+            X[torch.eye(X.shape[0], device=X.device, dtype=torch.uint8)] = val
+    else:
+        mask = X.new_ones()
+        fill_diagonal(X, 0, inplace=True)
+        return X * mask
+
+
 def as_parameter(X, requires_grad=None, **kwargs):
     if X is None:
         return None

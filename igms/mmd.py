@@ -12,6 +12,14 @@ class Estimator(enum.Enum):
 
 
 def mmd2(K, estimator=Estimator.UNBIASED, inds=(0, 1)):
+    """
+    Estimate the squared MMD.
+
+    - K: a LazyKernelResult object.
+    - inds: which parts of K to compute on [default (0, 1)].
+
+    By default, we estimate the MMD between K.parts[0] and K.parts[1].
+    """
     i, j = inds
 
     XX = K.matrix(i, i)
@@ -27,6 +35,65 @@ def mmd2(K, estimator=Estimator.UNBIASED, inds=(0, 1)):
         return XX.offdiag_mean() + YY.offdiag_mean() - 2 * XY.offdiag_mean()
     else:
         raise ValueError(f"unknown estimator type '{estimator}'")
+
+
+def pairwise_mmd2s(K, estimator=Estimator.UNBIASED, use_joint=True):
+    """
+    Computes the matrix of all pairwise mmd2s for the given LazyKernelResult.
+
+    If use_joint is False, does the computations separately (more memory-efficent);
+    if True, does them all together (possibly faster, depending).
+
+    For unbiased estimators, the diagonal will almost always be negative.
+    You can use utils.fill_diagonal(est, 0) if you want.
+    """
+    if not use_joint:
+        return torch.stack(
+            [
+                mmd2(K, estimator=estimator, inds=(i, j))
+                for i in range(K.n_parts)
+                for j in range(K.n_parts)
+            ],
+            0,
+        ).reshape(K.n_parts, K.n_parts)
+
+    if estimator not in {Estimator.BIASED, Estimator.UNBIASED, Estimator.U_STAT}:
+        raise ValueError(f"unknown estimator type '{estimator}'")
+
+    if estimator == Estimator.U_STAT:
+        assert len(set(K.ns)) == 1
+        raise NotImplementedError(
+            "haven't implemented u-statistic est with use_joint=True"
+        )
+
+    joint = K.joint()
+
+    # probably a more efficient way to do this
+    wts = joint.new_zeros(K.n_parts, joint.shape[0])
+    start = 0
+    for i, n in enumerate(K.ns):
+        wts[i, start : start + n] = 1 / n
+        start += n
+
+    block_means = torch.einsum("ia,jb,ab->ij", wts, wts, joint)
+
+    if estimator == Estimator.BIASED:
+        diag = torch.diagonal(block_means)
+        return diag[:, None] + diag[None, :] - 2 * block_means
+
+    elif estimator == Estimator.UNBIASED:
+        # have to correct the mean-to-self terms...
+        # subtract off the sum of the diagonal elements
+        ns = torch.as_tensor(K.ns, dtype=joint.dtype, device=joint.device)
+        if K.const_diagonal:
+            diag_sums = K.const_diagonal / ns
+        else:
+            diag_sums = torch.einsum("ia,ia,aa->i", wts, wts, joint)
+        # and multiply by n^2 / (n (n-1)) = n / (n-1)
+        corrs = ns / (ns - 1.0)
+        unbiased_diag = (torch.diagonal(block_means) - diag_sums) * corrs
+
+        return unbiased_diag[None, :] + unbiased_diag[:, None] - 2 * block_means
 
 
 def mmd2_permutations(K, estimator=Estimator.U_STAT, permutations=500, inds=(0, 1)):
