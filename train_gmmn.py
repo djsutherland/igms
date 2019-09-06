@@ -18,7 +18,7 @@ from igms.featurize import load_featurizer
 from igms.generator import make_generator
 from igms.mmd import mmd2, Estimator
 from igms.kernels import pick_kernel
-from igms.utils import ArgumentParser, get_optimizer, pil, set_other_seeds
+from igms.utils import ArgumentParser, get_optimizer, pil, set_other_seeds, str2bool
 
 
 def parse_args(argv=None, check_dir=True):
@@ -40,6 +40,8 @@ def parse_args(argv=None, check_dir=True):
     ds = parser.add_argument_group("dataset options")
     ds.add_argument("--dataset", default="celebA")
     ds.add_argument("--out-size", type=int, default=64)
+    ds.add_argument("--out-channels", type=int, default=3)
+    ds.add_argument("--download-dataset", type=str2bool, default=True)
 
     gen = parser.add_argument_group("generator options")
     gen.add_argument("--z-dim", type=int, default=128)
@@ -121,7 +123,10 @@ def main():
         torch.backends.cudnn.benchmark = True
 
     generator = make_generator(
-        args.generator, output_size=args.out_size, z_dim=args.z_dim
+        args.generator,
+        output_size=args.out_size,
+        z_dim=args.z_dim,
+        output_channels=args.out_channels,
     ).to(device)
     opt = get_optimizer(args.optimizer)(generator.parameters())
 
@@ -155,7 +160,9 @@ def main():
         fake_reps = featurizer(fake_imgs)
         return mmd2(top_kernel(real_reps, fake_reps), estimator=estimator)
 
-    dataset = get_dataset(args.dataset, out_size=args.out_size)
+    dataset = get_dataset(
+        args.dataset, out_size=args.out_size, download=args.download_dataset
+    )
     dataloader = DataLoader(
         dataset,
         batch_size=args.batch_size,

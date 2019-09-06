@@ -94,6 +94,14 @@ def floats_or_none(s):
     return floats(s) if s else None
 
 
+def str2bool(s):
+    if s.lower() in {'true', '1', 'yes', 'y', 't'}:
+        return True
+    if s.lower() in {'false', '0', 'no', 'n', 'f'}:
+        return False
+    raise ValueError(f"unknown bool {s!r}")
+
+
 ################################################################################
 # argparse nicety
 
