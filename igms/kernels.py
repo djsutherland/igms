@@ -225,10 +225,10 @@ def pick_kernel(spec):
 
     name = "".join(x for x in name.split("_")).lower()
 
-    fn, arg_info = _registry[name]
+    cls, arg_info = _registry[name]
     assert len(args) <= len(arg_info)
     kwargs = {name: parser(s) for s, (name, parser) in zip(args, arg_info)}
-    return partial(fn, **kwargs)
+    return cls(**kwargs)
 
 
 ################################################################################
