@@ -77,7 +77,9 @@ def parse_args(argv=None, check_dir=True):
         def checkpoint_idx(s):
             return tuple(int(x) for x in pat.search(s).groups())
 
-        checkpoint = torch.load(max(checkpoints, key=checkpoint_idx))
+        checkpoint = torch.load(
+            max(checkpoints, key=checkpoint_idx), map_location=args.device
+        )
         checkpoint_args = checkpoint["args"]
         checkpoint_args.device = args.device
         checkpoint_args.data_workers = args.data_workers
@@ -140,7 +142,7 @@ def main():
         log_latents.uniform_(-1, 1)
         resume = None
 
-    featurizer = load_featurizer(args.featurizer).to(device)
+    featurizer = load_featurizer(args.featurizer, map_location=device).to(device)
     top_kernel = pick_kernel(args.kernel)
     estimator = Estimator[args.mmd_estimator]
 
