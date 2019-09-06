@@ -6,6 +6,15 @@ import torch
 from torch import nn
 from torchvision import models
 
+try:
+    from torch.nn import Identity
+except ImportError:  # added in torch 1.1
+
+    class Identity(nn.Module):
+        def forward(self, input):
+            return input
+
+
 ################################################################################
 # Normalization layer, since we need to do this to generator samples instead of
 # on loading the data.
@@ -136,6 +145,12 @@ def vgg_end(self, x):
     return x
 
 
+@extractor(Identity, "through")
+@extractor(Identity, "end")
+def identity_extractor(self, x):
+    return x.view(x.size(0), -1)
+
+
 ################################################################################
 # Main method to load stuff.
 
@@ -215,6 +230,8 @@ def load_featurizer(spec, input_scale=(-1, 1), **load_args):
         if model_name == "smoothing":
             noise_level = float(parts.pop(0)) if parts else 0.25
             model = load_smoothing_imagenet_model(noise_level=noise_level, **load_args)
+        elif model_name == "identity":
+            model = Identity()
         else:
             if not hasattr(models, model_name):
                 raise ValueError(f"unknown model type {model_name}")
