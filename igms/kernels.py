@@ -581,7 +581,7 @@ class MixGeneralRBFDot(KernelOnVectors):
         if wts is not None:
             assert self.lengthscales_sq.shape == self.wts.shape
         self.add_dot = as_parameter(add_dot)
-        self._value_at_0 = 1
+        self._value_at_0 = 1.0
 
     @property
     def adding_dot(self):
@@ -636,7 +636,7 @@ class MixSqExp(MixSqExpDot):
     """
 
     def __init__(self, lengthscales_sq: floats = (1.0,), wts: floats_or_none = None):
-        super().__init__(lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0)
+        super().__init__(lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0.0)
 
 
 @register
@@ -646,7 +646,7 @@ class SqExp(MixSqExpDot):
     """
 
     def __init__(self, lengthscale_sq: float = 1.0):
-        super().__init__(lengthscales_sq=(lengthscale_sq,), wts=None, add_dot=0)
+        super().__init__(lengthscales_sq=(lengthscale_sq,), wts=None, add_dot=0.0)
 
 
 @register
@@ -663,7 +663,7 @@ class MixRQDot(MixGeneralRBFDot):
         alphas: floats = (1.0,),
         lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
-        add_dot: float = 0,
+        add_dot: float = 0.0,
     ):
         super().__init__(lengthscales_sq=lengthscales_sq, wts=wts, add_dot=add_dot)
 
@@ -690,7 +690,7 @@ class MixRQ(MixRQDot):
         wts: floats_or_none = None,
     ):
         super().__init__(
-            alphas=alphas, lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0
+            alphas=alphas, lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0.0
         )
 
 
@@ -700,5 +700,5 @@ class RQ(MixRQDot):
 
     def __init__(self, alpha: float = 1.0, lengthscale_sq: float = 1.0):
         super().__init__(
-            alphas=(alpha,), lengthscales_sq=(lengthscale_sq,), wts=None, add_dot=0
+            alphas=(alpha,), lengthscales_sq=(lengthscale_sq,), wts=None, add_dot=0.0
         )
