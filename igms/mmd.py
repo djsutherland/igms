@@ -4,6 +4,8 @@ import warnings
 import torch
 import numpy as np
 
+from .utils import fill_diagonal
+
 
 class Estimator(enum.Enum):
     BIASED = enum.auto()
@@ -37,15 +39,17 @@ def mmd2(K, estimator=Estimator.UNBIASED, inds=(0, 1)):
         raise ValueError(f"unknown estimator type '{estimator}'")
 
 
-def pairwise_mmd2s(K, estimator=Estimator.UNBIASED, use_joint=True, inds=None):
+def pairwise_mmd2s(
+    K, estimator=Estimator.UNBIASED, use_joint=True, inds=None, skip_diag=True
+):
     """
     Computes the matrix of all pairwise mmd2s for the given LazyKernelResult.
 
     If use_joint is False, does the computations separately (more memory-efficent);
     if True, does them all together (possibly faster, depending).
 
-    For unbiased estimators, the diagonal will almost always be negative.
-    You can use utils.fill_diagonal(est, 0) if you want.
+    If skip_diag, just use 0s on the diagonal. The unbiased estimator will
+    otherwise be negative.
     """
     if inds is None:
         inds = range(K.n_parts)
@@ -53,7 +57,7 @@ def pairwise_mmd2s(K, estimator=Estimator.UNBIASED, use_joint=True, inds=None):
     if not use_joint:
         return torch.stack(
             [
-                mmd2(K, estimator=estimator, inds=(i, j))
+                0 if skip_diag and i == j else mmd2(K, estimator=estimator, inds=(i, j))
                 for i in inds
                 for j in inds
             ],
@@ -82,7 +86,7 @@ def pairwise_mmd2s(K, estimator=Estimator.UNBIASED, use_joint=True, inds=None):
 
     if estimator == Estimator.BIASED:
         diag = torch.diagonal(block_means)
-        return diag[:, None] + diag[None, :] - 2 * block_means
+        est = diag[:, None] + diag[None, :] - 2 * block_means
 
     elif estimator == Estimator.UNBIASED:
         # have to correct the mean-to-self terms...
@@ -96,7 +100,9 @@ def pairwise_mmd2s(K, estimator=Estimator.UNBIASED, use_joint=True, inds=None):
         corrs = ns / (ns - 1.0)
         unbiased_diag = (torch.diagonal(block_means) - diag_sums) * corrs
 
-        return unbiased_diag[None, :] + unbiased_diag[:, None] - 2 * block_means
+        est = unbiased_diag[None, :] + unbiased_diag[:, None] - 2 * block_means
+
+    return fill_diagonal(est, 0) if skip_diag else est
 
 
 def mmd2_permutations(K, estimator=Estimator.U_STAT, permutations=500, inds=(0, 1)):
