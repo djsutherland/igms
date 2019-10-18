@@ -703,3 +703,34 @@ class RQ(MixRQ):
 
     def __init__(self, alpha: float = 1.0, lengthscale_sq: float = 1.0):
         super().__init__(alphas=(alpha,), lengthscales_sq=(lengthscale_sq,), wts=None)
+
+
+@register
+class DistanceKernel(KernelOnVectors):
+    r"""
+    k(x, y) = ||x - O||^q + ||y - O||^q - ||x - y||^q
+
+    A valid kernel for 0 < q <= 2 and any choice of O (default is 0).
+    The choice of O doesn't matter to the MMD, but could for other uses.
+    With q = 1, the MMD becomes the energy distance.
+
+    This is the kernel of Example 15 from
+        https://projecteuclid.org/download/pdfview_1/euclid.aos/1383661264
+    except that it's doubled so that ED = MMD^2 instead of 2 MMD^2.
+    """
+
+    def __init__(self, q: float = 1.0, origin: floats = (0.0,)):
+        super().__init__()
+        self.q = as_parameter(q)
+        self.origin = as_parameter(origin)
+
+    def _precompute(self, A):
+        sqnorms = torch.einsum("ij,ij->i", A, A)
+        d_O = A - self.origin
+        qdist_to_O = torch.einsum("ij,ij->i", d_O, d_O) ** (self.q / 2)
+        return (sqnorms, qdist_to_O)
+
+    def _compute(self, A, A_sqnorms, A_to_O, B, B_sqnorms, B_to_O):
+        D2 = A_sqnorms[:, None] + B_sqnorms[None, :] - 2 * A @ B.t()
+        Dq = torch.relu(D2) ** (self.q / 2)
+        return A_to_O[:, None] + B_to_O[None, :] - Dq
