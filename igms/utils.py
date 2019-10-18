@@ -30,6 +30,7 @@ def fill_diagonal(X, val, inplace=None):
             return X
         else:
             X[torch.eye(X.shape[0], device=X.device, dtype=torch.uint8)] = val
+            return X
     else:
         mask = X.new_ones()
         fill_diagonal(X, 0, inplace=True)
