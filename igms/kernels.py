@@ -292,9 +292,6 @@ class Kernel(torch.nn.Module):
         )})"""
 
 
-_name_map = {"X": 0, "Y": 1, "Z": 2}
-
-
 class LazyKernelResult:
     """
     Class that allows computing kernel matrices among a bunch of datasets,
@@ -313,7 +310,9 @@ class LazyKernelResult:
         super().__init__()
         self.kernel = kernel
         self._cache = {}
-        if not hasattr(self, "const_diagonal"):
+        try:
+            self.const_diagonal = kernel.const_diagonal
+        except AttributeError:
             self.const_diagonal = False
 
         self._parts = as_tensors(*parts)
