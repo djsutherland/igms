@@ -150,13 +150,14 @@ def mmd2_permutations(K, estimator=Estimator.U_STAT, permutations=500, inds=(0, 
     return est.item(), p_val.item(), rest
 
 
-def mmd2_and_variance(K, estimator=Estimator.U_STAT, inds=(0, 1)):
+def mmd2_and_unbiased_variance(K, estimator=Estimator.U_STAT, inds=(0, 1)):
     """
-    Estimate MMD variance with estimator from https://arxiv.org/abs/1906.02104.
+    Estimate MMD variance with the unbiased estimator
+    from https://arxiv.org/abs/1906.02104.
     """
     if estimator != Estimator.U_STAT:
         warnings.warn(
-            "Computing asymptotic variance for U-statistic estimator, "
+            "Estimating variance for the U-statistic estimator, "
             f"but using {estimator}."
         )
     i, j = inds
@@ -194,6 +195,35 @@ def mmd2_and_variance(K, estimator=Estimator.U_STAT, inds=(0, 1)):
         + (4 * m2 / (mm * m1_m1_m1)) * XY.sq_sum()
     )
 
+    return mmd_est, var_est
+
+
+def mmd2_and_vstat_variance(K, estimator=Estimator.U_STAT, inds=(0, 1)):
+    """
+    Estimate the asymptotic MMD variance with a simple V-statistic.
+    """
+    i, j = inds
+    m = K.n(i)
+    assert K.n(j) == m
+    XX = K.matrix(i, i)
+    XY = K.matrix(i, j)
+    YY = K.matrix(j, j)
+
+    # we're caching anyway
+    mmd_est = mmd2(K, estimator=estimator, inds=inds)
+
+    # H = XX + YY - XY - XY.t()
+    # estimator is
+    #   4/m * [ mean(col_means(H) ** 2) - mean(H)**2 ]
+    H_col_means = (XX.col_sums() + YY.col_sums() - XY.col_sums() - XY.row_sums()) / m
+    var_est = (
+        4
+        / m
+        * (
+            (H_col_means @ H_col_means) / m
+            - (XX.sum() + YY.sum() - 2 * XY.sum()) ** 2 / m ** 4
+        )
+    )
     return mmd_est, var_est
 
 
