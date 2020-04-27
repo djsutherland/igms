@@ -2,6 +2,7 @@
 Some probably over-engineered infrastructure for lazily computing kernel
 matrices, allowing for various sums / means / etc used by MMD-related estimators.
 """
+from collections.abc import Iterable
 from functools import partial, wraps
 import inspect
 
@@ -344,23 +345,31 @@ class LazyKernelResult:
             return self._precompute_i(0)
         return self._precompute(p)
 
-    @_cache
     def __getitem__(self, k):
         try:
             i, j = k
         except ValueError:
             raise KeyError("You should index kernels with pairs")
 
+        i_iter = isinstance(i, Iterable)
+        j_iter = isinstance(j, Iterable)
+        if i_iter or j_iter:
+            return self.subsets(i if i_iter else (i,), j if j_iter else (j,))
+        else:
+            return self.value(i, j)
+
+    @_cache
+    def value(self, i, j):
         A = self._part(i)
         if A is None:
-            return self[0, j]
+            return self.value(0, j)
 
         B = self._part(j)
         if B is None:
-            return self[i, 0]
+            return self.value(i, 0)
 
-        if i > j:
-            return self[j, i].t()
+        if i > j:  # for caching; don't recompute opposites
+            return self.value(j, i).t()
 
         A_info = self._precompute_i(i)
         B_info = self._precompute_i(j)
@@ -380,19 +389,43 @@ class LazyKernelResult:
         else:
             return as_matrix(k)
 
-    @_cache
     def joint(self, *inds):
         if not inds:
-            return self.joint(*range(self.n_parts))
-        return torch.cat([torch.cat([self[i, j] for j in inds], 1) for i in inds], 0)
+            inds = tuple(range(self.n_parts))
+        return self._subsets(inds, inds)
 
-    @_cache
     def joint_m(self, *inds):
         if not inds:
-            return self.joint_m(*range(self.n_parts))
-        return as_matrix(
-            self.joint(*inds), const_diagonal=self.const_diagonal, symmetric=True
+            inds = tuple(range(self.n_parts))
+        return self._subsets_m(inds, inds)
+
+    def subsets(self, inds_a, inds_b):
+        if not isinstance(inds_a, tuple):
+            inds_a = tuple(inds_a)
+        if not isinstance(inds_b, tuple):
+            inds_b = tuple(inds_b)
+        return self._subsets(inds_a, inds_b)
+
+    def subsets_m(self, inds_a, inds_b):
+        if not isinstance(inds_a, tuple):
+            inds_a = tuple(inds_a)
+        if not isinstance(inds_b, tuple):
+            inds_b = tuple(inds_b)
+        return self._subsets_m(inds_a, inds_b)
+
+    @_cache
+    def _subsets(self, inds_a, inds_b):
+        return torch.cat(
+            [torch.cat([self[i, j] for j in inds_b], 1) for i in inds_a], 0
         )
+
+    @_cache
+    def _subsets_m(self, inds_a, inds_b):
+        vals = self._subsets(inds_a, inds_b)
+        if inds_a == inds_b:
+            return as_matrix(vals, const_diagonal=self.const_diagonal, symmetric=True)
+        else:
+            return as_matrix(vals)
 
     ############################################################################
     # Helpers to access things more nicely
