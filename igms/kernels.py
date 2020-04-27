@@ -299,7 +299,7 @@ class LazyKernelResult:
     only computing the matrices when we use them.
 
     You normally won't construct this object directly, but instead
-    get it from LazyKernel.__call__.
+    get it from Kernel.__call__, typically from a subclass defined below.
 
     Access the results with:
       - K[0, 1] to get the Tensor between parts 0 and 1.
@@ -346,11 +346,12 @@ class LazyKernelResult:
         return self._precompute(p)
 
     def __getitem__(self, k):
-        try:
-            i, j = k
-        except ValueError:
-            raise KeyError("You should index kernels with pairs")
+        if len(k) == 1:
+            return self.part(k)
+        elif len(k) != 2:
+            raise TypeError("Kernel results should be indexed with 1 or 2 objects")
 
+        i, j = k
         i_iter = isinstance(i, Iterable)
         j_iter = isinstance(j, Iterable)
         if i_iter or j_iter:
