@@ -1,3 +1,3 @@
-torch>=1.0  # not positive on this lower bound
+torch>=1.0
 torchvision>=0.3.0
 tqdm
