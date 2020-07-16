@@ -607,6 +607,7 @@ class MixGeneralRBFDot(KernelOnVectors):
         lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
         add_dot: float = 0.0,
+        intermediate_float64=False,
     ):
         super().__init__()
         self.lengthscales_sq = as_parameter(lengthscales_sq)
@@ -615,6 +616,7 @@ class MixGeneralRBFDot(KernelOnVectors):
             assert self.lengthscales_sq.shape == self.wts.shape
         self.add_dot = as_parameter(add_dot)
         self._value_at_0 = 1.0
+        self.intermediate_float64 = intermediate_float64
 
     @property
     def adding_dot(self):
@@ -630,11 +632,18 @@ class MixGeneralRBFDot(KernelOnVectors):
             return self.wts.sum() * self._value_at_0
 
     def _precompute(self, A):
-        return (torch.einsum("ij,ij->i", A, A),)
+        A_cast = A.double() if self.intermediate_float64 else A
+        return (
+            A_cast,
+            torch.einsum("ij,ij->i", A_cast, A_cast),
+        )
 
-    def _compute(self, A, A_sqnorms, B, B_sqnorms):
-        dot = A @ B.t()
+    def _compute(self, A, A_cast, A_sqnorms, B, B_cast, B_sqnorms):
+        dot = A_cast @ B_cast.t()
         D2 = A_sqnorms[:, None] + B_sqnorms[None, :] - 2 * dot
+        if D2.dtype != A.dtype:
+            D2 = D2.type(A.dtype)
+            dot = dot.type(A.dtype)
         K_parts = self._rbf_function(
             D2[None, :, :] / self.lengthscales_sq[:, None, None]
         )
@@ -668,8 +677,12 @@ class MixSqExp(MixSqExpDot):
     k(x, y) = \sum_i wts[i] exp(- ||x - y||^2 / (2 * lengthscales_sq[i]))
     """
 
-    def __init__(self, lengthscales_sq: floats = (1.0,), wts: floats_or_none = None):
-        super().__init__(lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0.0)
+    def __init__(
+        self, lengthscales_sq: floats = (1.0,), wts: floats_or_none = None, **kwargs
+    ):
+        super().__init__(
+            lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0.0, **kwargs
+        )
 
     adding_dot = False
 
@@ -680,8 +693,8 @@ class SqExp(MixSqExp):
     k(x, y) = exp(- ||x - y||^2 / (2 * lengthscale_sq))
     """
 
-    def __init__(self, lengthscale_sq: float = 1.0):
-        super().__init__(lengthscales_sq=(lengthscale_sq,), wts=None)
+    def __init__(self, lengthscale_sq: float = 1.0, **kwargs):
+        super().__init__(lengthscales_sq=(lengthscale_sq,), wts=None, **kwargs)
 
 
 @register
@@ -699,8 +712,11 @@ class MixRQDot(MixGeneralRBFDot):
         lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
         add_dot: float = 0.0,
+        **kwargs,
     ):
-        super().__init__(lengthscales_sq=lengthscales_sq, wts=wts, add_dot=add_dot)
+        super().__init__(
+            lengthscales_sq=lengthscales_sq, wts=wts, add_dot=add_dot, **kwargs
+        )
 
         self.alphas = as_parameter(alphas)
         assert self.alphas.shape == self.lengthscales_sq.shape
@@ -723,9 +739,14 @@ class MixRQ(MixRQDot):
         alphas: floats = (1.0,),
         lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
+        **kwargs,
     ):
         super().__init__(
-            alphas=alphas, lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0.0
+            alphas=alphas,
+            lengthscales_sq=lengthscales_sq,
+            wts=wts,
+            add_dot=0.0,
+            **kwargs,
         )
 
     adding_dot = False
@@ -735,8 +756,10 @@ class MixRQ(MixRQDot):
 class RQ(MixRQ):
     r"k(x, y) = (1 + ||x - y||^2 / (2 * alpha * lengthscale_sq))^(-alpha)"
 
-    def __init__(self, alpha: float = 1.0, lengthscale_sq: float = 1.0):
-        super().__init__(alphas=(alpha,), lengthscales_sq=(lengthscale_sq,), wts=None)
+    def __init__(self, alpha: float = 1.0, lengthscale_sq: float = 1.0, **kwargs):
+        super().__init__(
+            alphas=(alpha,), lengthscales_sq=(lengthscale_sq,), wts=None, **kwargs
+        )
 
 
 @register
@@ -753,18 +776,23 @@ class DistanceKernel(KernelOnVectors):
     except that it's doubled so that ED = MMD^2 instead of 2 MMD^2.
     """
 
-    def __init__(self, q: float = 1.0, origin: floats = (0.0,)):
+    def __init__(self, q: float = 1.0, origin: floats = (0.0,), intermediate_float64=False):
         super().__init__()
         self.q = as_parameter(q)
         self.origin = as_parameter(origin)
+        self.intermediate_float64 = intermediate_float64
 
     def _precompute(self, A):
-        sqnorms = torch.einsum("ij,ij->i", A, A)
-        d_O = A - self.origin
+        A_cast = A.double() if self.intermediate_float64 else A
+        sqnorms = torch.einsum("ij,ij->i", A_cast, A_cast)
+        d_O = A_cast - self.origin
         qdist_to_O = torch.einsum("ij,ij->i", d_O, d_O) ** (self.q / 2)
-        return (sqnorms, qdist_to_O)
+        return (A_cast, sqnorms, qdist_to_O)
 
-    def _compute(self, A, A_sqnorms, A_to_O, B, B_sqnorms, B_to_O):
-        D2 = A_sqnorms[:, None] + B_sqnorms[None, :] - 2 * A @ B.t()
+    def _compute(self, A, A_cast, A_sqnorms, A_to_O, B, B_cast, B_sqnorms, B_to_O):
+        D2 = A_sqnorms[:, None] + B_sqnorms[None, :] - 2 * A_cast @ B_cast.t()
         Dq = torch.relu(D2) ** (self.q / 2)
-        return A_to_O[:, None] + B_to_O[None, :] - Dq
+        res = A_to_O[:, None] + B_to_O[None, :] - Dq
+        if self.intermediate_float64 and res.dtype != A.dtype:
+            res = res.type(A.dtype)
+        return res
