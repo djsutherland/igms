@@ -607,7 +607,7 @@ class MixGeneralRBFDot(KernelOnVectors):
         lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
         add_dot: float = 0.0,
-        intermediate_float64=False,
+        intermediate_float64: bool = False,
     ):
         super().__init__()
         self.lengthscales_sq = as_parameter(lengthscales_sq)
@@ -678,10 +678,16 @@ class MixSqExp(MixSqExpDot):
     """
 
     def __init__(
-        self, lengthscales_sq: floats = (1.0,), wts: floats_or_none = None, **kwargs
+        self,
+        lengthscales_sq: floats = (1.0,),
+        wts: floats_or_none = None,
+        intermediate_float64: bool = False,
     ):
         super().__init__(
-            lengthscales_sq=lengthscales_sq, wts=wts, add_dot=0.0, **kwargs
+            lengthscales_sq=lengthscales_sq,
+            wts=wts,
+            add_dot=0.0,
+            intermediate_float64=intermediate_float64,
         )
 
     adding_dot = False
@@ -693,8 +699,12 @@ class SqExp(MixSqExp):
     k(x, y) = exp(- ||x - y||^2 / (2 * lengthscale_sq))
     """
 
-    def __init__(self, lengthscale_sq: float = 1.0, **kwargs):
-        super().__init__(lengthscales_sq=(lengthscale_sq,), wts=None, **kwargs)
+    def __init__(self, lengthscale_sq: float = 1.0, intermediate_float64: bool = False):
+        super().__init__(
+            lengthscales_sq=(lengthscale_sq,),
+            wts=None,
+            intermediate_float64=intermediate_float64,
+        )
 
 
 @register
@@ -712,10 +722,13 @@ class MixRQDot(MixGeneralRBFDot):
         lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
         add_dot: float = 0.0,
-        **kwargs,
+        intermediate_float64: bool = False,
     ):
         super().__init__(
-            lengthscales_sq=lengthscales_sq, wts=wts, add_dot=add_dot, **kwargs
+            lengthscales_sq=lengthscales_sq,
+            wts=wts,
+            add_dot=add_dot,
+            intermediate_float64=intermediate_float64,
         )
 
         self.alphas = as_parameter(alphas)
@@ -739,14 +752,14 @@ class MixRQ(MixRQDot):
         alphas: floats = (1.0,),
         lengthscales_sq: floats = (1.0,),
         wts: floats_or_none = None,
-        **kwargs,
+        intermediate_float64: bool = False,
     ):
         super().__init__(
             alphas=alphas,
             lengthscales_sq=lengthscales_sq,
             wts=wts,
             add_dot=0.0,
-            **kwargs,
+            intermediate_float64=intermediate_float64,
         )
 
     adding_dot = False
@@ -756,9 +769,17 @@ class MixRQ(MixRQDot):
 class RQ(MixRQ):
     r"k(x, y) = (1 + ||x - y||^2 / (2 * alpha * lengthscale_sq))^(-alpha)"
 
-    def __init__(self, alpha: float = 1.0, lengthscale_sq: float = 1.0, **kwargs):
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        lengthscale_sq: float = 1.0,
+        intermediate_float64: bool = False,
+    ):
         super().__init__(
-            alphas=(alpha,), lengthscales_sq=(lengthscale_sq,), wts=None, **kwargs
+            alphas=(alpha,),
+            lengthscales_sq=(lengthscale_sq,),
+            wts=None,
+            intermediate_float64=intermediate_float64,
         )
 
 
@@ -776,7 +797,12 @@ class DistanceKernel(KernelOnVectors):
     except that it's doubled so that ED = MMD^2 instead of 2 MMD^2.
     """
 
-    def __init__(self, q: float = 1.0, origin: floats = (0.0,), intermediate_float64=False):
+    def __init__(
+        self,
+        q: float = 1.0,
+        origin: floats = (0.0,),
+        intermediate_float64: bool = False,
+    ):
         super().__init__()
         self.q = as_parameter(q)
         self.origin = as_parameter(origin)
