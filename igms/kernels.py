@@ -541,7 +541,7 @@ class LazyKernelResult:
 class KernelOnVectors(Kernel):
     def forward(self, *parts, **kwargs):
         parts = as_tensors(*parts)
-        if any(len(p.shape) != 2 for p in parts):
+        if any(p is not None and len(p.shape) != 2 for p in parts):
             raise ValueError(f"{type(self).__name__} expects 2d input tensors")
 
         return super().forward(*parts, **kwargs)
