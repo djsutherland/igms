@@ -15,7 +15,7 @@ setup(
     description="Implementation of MMD and related implicit generative models for PyTorch.",
     long_description=readme,
     long_description_content_type="text/markdown",
-    url="https://github.com/dougalsutherland/igms",
+    url="https://github.com/djsutherland/igms",
     author="DJ Sutherland",
     author_email="mail@djsutherland.ml",
     packages=find_packages(),
